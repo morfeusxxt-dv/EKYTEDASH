@@ -134,13 +134,33 @@ export function DashboardView() {
   }, [user, period, customStartDate, customEndDate, selectedInvestor, allUsers]);
 
   // ── Filtros locais
-  const filteredLogs = useMemo(() => logs.filter(l =>
-    (selectedWorkspace === "all" || l.workspace === selectedWorkspace) &&
-    (selectedSquad === "all" || l.squad === selectedSquad) &&
-    (selectedInvestidor === "all" || l.investidor === selectedInvestidor) &&
-    (searchQuery === "" || [l.task, l.workspace, l.executor, l.project, l.squad, l.investidor]
-      .some(f => f?.toLowerCase().includes(searchQuery.toLowerCase())))
-  ), [logs, selectedWorkspace, selectedSquad, selectedInvestidor, searchQuery]);
+  const filteredLogs = useMemo(() => {
+    let result = logs;
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(l => [l.task, l.workspace, l.executor, l.project, l.squad, l.investidor]
+        .some(f => f?.toLowerCase().includes(q)));
+    }
+
+    if (selectedWorkspace !== "all") {
+      result = result.filter(l => l.workspace === selectedWorkspace);
+    }
+
+    if (selectedInvestidor !== "all") {
+      result = result.filter(l => l.investidor === selectedInvestidor);
+    }
+
+    if (selectedSquad !== "all") {
+      // Descobre quais executores trabalharam em clientes desse Squad
+      const squadExecutors = new Set(result.filter(l => l.squad === selectedSquad).map(l => l.executor));
+      
+      // Mantém os apontamentos do Squad + os apontamentos internos DESSES executores
+      result = result.filter(l => l.squad === selectedSquad || (l.interno && squadExecutors.has(l.executor)));
+    }
+
+    return result;
+  }, [logs, selectedWorkspace, selectedSquad, selectedInvestidor, searchQuery]);
 
   // ── Listas dinâmicas
   const workspacesList = useMemo(() => [...new Set(logs.map(l => l.workspace))].sort(), [logs]);
