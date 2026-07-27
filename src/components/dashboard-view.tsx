@@ -28,6 +28,7 @@ interface HourLog {
   diaSemanaIdx: number;
   horaInicio: number;
   interno: boolean;
+  fee?: number;
 }
 interface UserInfo { id: string; email: string; name: string; }
 
@@ -173,13 +174,14 @@ export function DashboardView() {
 
   // ── Ranking workspaces
   const wsTotals = useMemo(() => {
-    const map: Record<string, { nome: string; min: number; logs: number; execs: Set<string>; interno: boolean }> = {};
+    const map: Record<string, { nome: string; min: number; logs: number; execs: Set<string>; interno: boolean; fee: number }> = {};
     filteredLogs.forEach(l => {
       const k = l.workspace;
-      if (!map[k]) map[k] = { nome: k, min: 0, logs: 0, execs: new Set(), interno: l.interno };
+      if (!map[k]) map[k] = { nome: k, min: 0, logs: 0, execs: new Set(), interno: l.interno, fee: l.fee || 0 };
       map[k].min += l.hours * 60;
       map[k].logs += 1;
       map[k].execs.add(l.executor);
+      if (l.fee && map[k].fee === 0) map[k].fee = l.fee;
     });
     return Object.values(map)
       .map(w => ({ ...w, execs: w.execs.size }))
@@ -663,7 +665,7 @@ export function DashboardView() {
                       {/* Tabela */}
                       <div className="mt-4">
                         <table className="v4-table">
-                          <thead><tr><th>#</th><th>Workspace</th><th>Tipo</th><th>Executores</th><th style={{ textAlign: "right" }}>Horas</th></tr></thead>
+                          <thead><tr><th>#</th><th>Workspace</th><th>Tipo</th><th>Executores</th><th>Fee Mensal</th><th style={{ textAlign: "right" }}>Horas</th></tr></thead>
                           <tbody>
                             {wsTotals.map((w, i) => (
                               <tr key={w.nome}>
@@ -671,6 +673,7 @@ export function DashboardView() {
                                 <td style={{ fontWeight: 600, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={w.nome}>{w.nome}</td>
                                 <td><span className={`ws-tag ${w.interno ? "interno" : "cliente"}`}>{w.interno ? "Interno" : "Cliente"}</span></td>
                                 <td style={{ color: "var(--muted)" }}>{w.execs}</td>
+                                <td style={{ color: "var(--off-white)", fontWeight: 500 }}>{w.fee ? `R$ ${w.fee.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "—"}</td>
                                 <td className="num">{fmtH(w.min)}h</td>
                               </tr>
                             ))}

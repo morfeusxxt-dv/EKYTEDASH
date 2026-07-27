@@ -43,6 +43,7 @@ export async function GET(request: Request) {
     // 1.5 Busca os clientes/resumo da API do TFHub para enriquecer squad e investidor
     const clientesSquadMap = new Map<string, string>(); // nome -> squad_nome
     const clientesInvestidorMap = new Map<string, string>(); // nome -> investidor_nome
+    const clientesFeeMap = new Map<string, number>(); // nome -> fee
     try {
       const clientesRes = await fetch(`${tfhubApiUrl}/api/clientes/resumo`);
       if (clientesRes.ok) {
@@ -52,6 +53,8 @@ export async function GET(request: Request) {
             if (c.nome) {
               if (c.squad_nome) clientesSquadMap.set(c.nome.toLowerCase(), c.squad_nome);
               if (c.investidor_nome) clientesInvestidorMap.set(c.nome.toLowerCase(), c.investidor_nome);
+              const fee = c.fee || c.fee_mensal || c.valor || c.valor_fee || c.mensalidade || 0;
+              if (fee) clientesFeeMap.set(c.nome.toLowerCase(), Number(fee));
             }
           });
         }
@@ -124,6 +127,7 @@ export async function GET(request: Request) {
       const wsLower = workspaceName.toLowerCase();
       const squad = clientesSquadMap.get(wsLower) || "Sem Squad";
       const investidor = clientesInvestidorMap.get(wsLower) || "Sem Investidor";
+      const fee = clientesFeeMap.get(wsLower) || 0;
 
       // Campos de data/hora derivados
       const dateStr = item.startDate ? item.startDate.split("T")[0] : "";
@@ -159,6 +163,7 @@ export async function GET(request: Request) {
         diaSemanaIdx,
         horaInicio,
         interno,
+        fee,
       };
     });
 
