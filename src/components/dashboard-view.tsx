@@ -38,51 +38,45 @@ interface HourLog {
   project: string;
 }
 
-const INVESTORS_MAPPING = [
-  { id: "all", name: "Todos os Investidores", workspaces: ["Workspace Alfa Tech", "Alfa Finance", "Workspace Beta Ventures", "Beta Logistics", "Workspace Gamma Health"] },
-  { id: "alfa", name: "Investimentos Alfa S/A", workspaces: ["Workspace Alfa Tech", "Alfa Finance"] },
-  { id: "beta", name: "Beta Ventures", workspaces: ["Workspace Beta Ventures", "Beta Logistics"] },
-  { id: "gamma", name: "Gamma Health Group", workspaces: ["Workspace Gamma Health"] }
+// Lista de Investidores / Profissionais disponíveis
+const INVESTORS_LIST = [
+  { email: "lian.garras@v4company.com", name: "Lian Garras" },
+  { email: "carlos.silva@v4company.com", name: "Carlos Silva" },
+  { email: "mariana.souza@v4company.com", name: "Mariana Souza" },
 ];
 
 export function DashboardView() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<"overview" | "detailed">("overview");
 
-  // State filters
+  // Filtros principais
   const [period, setPeriod] = useState<"current-month" | "last-30" | "custom">("current-month");
-  const [selectedInvestor, setSelectedInvestor] = useState<string>("all");
+  const [selectedInvestor, setSelectedInvestor] = useState<string>("lian.garras@v4company.com"); // Lian Garras padrão
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("all");
   const [selectedProject, setSelectedProject] = useState<string>("all");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Data fetching state
+  // Dados carregados do Backend (Proxy API)
   const [logs, setLogs] = useState<HourLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Table pagination state
+  // Paginação
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 8;
 
-  const activeWorkspacesToFetch = useMemo(() => {
-    const matched = INVESTORS_MAPPING.find(inv => inv.id === selectedInvestor);
-    return matched ? matched.workspaces : [];
-  }, [selectedInvestor]);
-
-  useEffect(() => {
-    setSelectedWorkspace("all");
-  }, [selectedInvestor]);
-
-  // Fetch eKyte integration proxy
+  // Carrega os dados fazendo a requisição à API Route proxy
   useEffect(() => {
     async function fetchData() {
       if (!user) return;
       setLoading(true);
       try {
         const queryParams = new URLSearchParams();
-        queryParams.append("workspaces", activeWorkspacesToFetch.join(","));
+        // Passa todos os workspaces autorizados para carregar
+        queryParams.append("workspaces", user.workspaces.join(","));
+        // Passa o investidor/profissional selecionado
+        queryParams.append("professional", selectedInvestor);
 
         if (selectedProject !== "all") {
           queryParams.append("project", selectedProject);
@@ -116,25 +110,32 @@ export function DashboardView() {
           setLogs(resJson.data || []);
         }
       } catch (err) {
-        console.error("Erro ao carregar dados", err);
+        console.error("Erro ao carregar apontamentos", err);
       } finally {
         setLoading(false);
       }
     }
     fetchData();
-  }, [user, period, selectedProject, customStartDate, customEndDate, activeWorkspacesToFetch]);
+  }, [user, period, selectedProject, customStartDate, customEndDate, selectedInvestor]);
 
+  // Filtros locais aplicados no cliente
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
       const matchWorkspace = selectedWorkspace === "all" || log.workspace === selectedWorkspace;
       const matchSearch =
         searchQuery === "" ||
         log.task.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        log.professional.toLowerCase().includes(searchQuery.toLowerCase()) ||
         log.project.toLowerCase().includes(searchQuery.toLowerCase());
       return matchWorkspace && matchSearch;
     });
   }, [logs, selectedWorkspace, searchQuery]);
+
+  // Lista dinâmica de workspaces e projetos baseada nos logs filtrados do investidor
+  const workspacesList = useMemo(() => {
+    const list = new Set<string>();
+    logs.forEach((l) => list.add(l.workspace));
+    return Array.from(list);
+  }, [logs]);
 
   const projectsList = useMemo(() => {
     const list = new Set<string>();
@@ -142,7 +143,7 @@ export function DashboardView() {
     return Array.from(list);
   }, [logs]);
 
-  // KPIs calculations
+  // KPIs
   const totalHours = useMemo(() => {
     return filteredLogs.reduce((acc, curr) => acc + curr.hours, 0);
   }, [filteredLogs]);
@@ -157,16 +158,16 @@ export function DashboardView() {
     return list.size;
   }, [filteredLogs]);
 
-  // Stable variation mockup
+  // Variação visual simulada
   const simulatedVariation = useMemo(() => {
-    const base = selectedInvestor === "all" ? 12.5 : selectedInvestor.length * 2.5;
+    const base = selectedInvestor ? selectedInvestor.length * 1.8 : 12.0;
     return {
       hours: `${base > 15 ? "+" : "-"}${(base % 7).toFixed(1)}%`,
       isNegative: base <= 15,
     };
   }, [selectedInvestor]);
 
-  // Hours per Workspace
+  // Gráfico 1: Workspaces onde mais trabalhou (distribuição de horas do investidor)
   const workspaceChartData = useMemo(() => {
     const dataMap: Record<string, { name: string; horas: number }> = {};
     filteredLogs.forEach((log) => {
@@ -175,43 +176,33 @@ export function DashboardView() {
       }
       dataMap[log.workspace].horas += log.hours;
     });
-    return Object.values(dataMap);
+    return Object.values(dataMap).sort((a, b) => b.horas - a.horas);
   }, [filteredLogs]);
 
-  // Daily Evolution
-  const dailyChartData = useMemo(() => {
-    const dataMap: Record<string, Record<string, number>> = {};
+  // Gráfico 2: Evolução de horas semanais (semanas do mês)
+  const weeklyChartData = useMemo(() => {
+    const weeksMap: Record<string, number> = {
+      "Semana 1": 0,
+      "Semana 2": 0,
+      "Semana 3": 0,
+      "Semana 4": 0,
+    };
+
     filteredLogs.forEach((log) => {
-      const dateLabel = new Date(log.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-      if (!dataMap[dateLabel]) {
-        dataMap[dateLabel] = {};
-      }
-      if (!dataMap[dateLabel][log.workspace]) {
-        dataMap[dateLabel][log.workspace] = 0;
-      }
-      dataMap[dateLabel][log.workspace] += log.hours;
+      const day = new Date(log.date).getDate();
+      if (day <= 7) weeksMap["Semana 1"] += log.hours;
+      else if (day <= 14) weeksMap["Semana 2"] += log.hours;
+      else if (day <= 21) weeksMap["Semana 3"] += log.hours;
+      else weeksMap["Semana 4"] += log.hours;
     });
 
-    return Object.entries(dataMap)
-      .map(([date, workspaces]) => {
-        const item: any = { date };
-        let total = 0;
-        Object.entries(workspaces).forEach(([ws, hrs]) => {
-          item[ws] = hrs;
-          total += hrs;
-        });
-        item.Total = total;
-        return item;
-      })
-      .sort((a, b) => {
-        const [dayA, monthA] = a.date.split("/");
-        const [dayB, monthB] = b.date.split("/");
-        return new Date(2026, parseInt(monthA) - 1, parseInt(dayA)).getTime() -
-               new Date(2026, parseInt(monthB) - 1, parseInt(dayB)).getTime();
-      });
+    return Object.entries(weeksMap).map(([week, horas]) => ({
+      name: week,
+      horas: parseFloat(horas.toFixed(1)),
+    }));
   }, [filteredLogs]);
 
-  // Pagination
+  // Paginação da Tabela
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
   const paginatedLogs = useMemo(() => {
     const startIdx = (currentPage - 1) * itemsPerPage;
@@ -233,7 +224,7 @@ export function DashboardView() {
               <span className="text-white font-extrabold text-xs tracking-tighter">eK</span>
             </div>
             <span className="text-xs font-bold tracking-tight text-white uppercase">
-              Ekyte <span className="text-zinc-600 font-medium">Dash</span>
+              Ekyte <span className="text-zinc-650 font-medium">Dash</span>
             </span>
           </div>
 
@@ -344,7 +335,7 @@ export function DashboardView() {
               </div>
             )}
 
-            {/* Investor Dropdown */}
+            {/* Selector: Investidor / Profissional */}
             <div className="relative">
               <User className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
               <select
@@ -352,9 +343,9 @@ export function DashboardView() {
                 onChange={(e) => setSelectedInvestor(e.target.value)}
                 className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-red-500 font-bold appearance-none cursor-pointer"
               >
-                {INVESTORS_MAPPING.map((inv) => (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.name}
+                {INVESTORS_LIST.map((inv) => (
+                  <option key={inv.email} value={inv.email}>
+                    {inv.email} ({inv.name})
                   </option>
                 ))}
               </select>
@@ -369,7 +360,7 @@ export function DashboardView() {
                 className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-white appearance-none cursor-pointer"
               >
                 <option value="all">Todos os Workspaces</option>
-                {activeWorkspacesToFetch.map((ws) => (
+                {workspacesList.map((ws) => (
                   <option key={ws} value={ws}>
                     {ws}
                   </option>
@@ -408,7 +399,7 @@ export function DashboardView() {
               {/* Hours Card */}
               <div className="premium-card p-5 rounded">
                 <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  <span>Horas Consumidas</span>
+                  <span>Horas Apontadas</span>
                   <Clock className="w-3.5 h-3.5 text-zinc-500" />
                 </div>
                 <div className="flex items-baseline gap-2">
@@ -422,7 +413,7 @@ export function DashboardView() {
               {/* Workspaces Card */}
               <div className="premium-card p-5 rounded">
                 <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  <span>Workspaces Ativos</span>
+                  <span>Workspaces Atendidos</span>
                   <Layers className="w-3.5 h-3.5 text-zinc-500" />
                 </div>
                 <div className="flex items-baseline gap-2">
@@ -433,7 +424,7 @@ export function DashboardView() {
               {/* Projects Card */}
               <div className="premium-card p-5 rounded">
                 <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  <span>Projetos em Andamento</span>
+                  <span>Projetos Envolvidos</span>
                   <Briefcase className="w-3.5 h-3.5 text-zinc-500" />
                 </div>
                 <div className="flex items-baseline gap-2">
@@ -446,10 +437,10 @@ export function DashboardView() {
               <>
                 {/* 2. Charts */}
                 <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Bar Chart */}
+                  {/* Bar Chart: Workspaces onde mais trabalhou */}
                   <div className="premium-card p-5 rounded">
                     <div className="mb-4">
-                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Horas por Workspace</h3>
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Workspaces Mais Trabalhados (Horas)</h3>
                     </div>
                     <div className="h-64">
                       {workspaceChartData.length === 0 ? (
@@ -472,34 +463,26 @@ export function DashboardView() {
                     </div>
                   </div>
 
-                  {/* Line Chart */}
+                  {/* Line Chart: Evolução Semanal de Horas */}
                   <div className="premium-card p-5 rounded">
                     <div className="mb-4">
-                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Evolução do Consumo</h3>
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Evolução de Horas Semanais</h3>
                     </div>
                     <div className="h-64">
-                      {dailyChartData.length === 0 ? (
+                      {weeklyChartData.length === 0 ? (
                         <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">Sem dados.</div>
                       ) : (
                         <ResponsiveContainer width="100%" height="100%">
-                          <ReLineChart data={dailyChartData} margin={{ top: 10, right: 10, left: -30, bottom: 0 }}>
+                          <ReLineChart data={weeklyChartData} margin={{ top: 10, right: 10, left: -30, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="2 2" stroke="#121214" vertical={false} />
-                            <XAxis dataKey="date" stroke="#3f3f46" fontSize={9} tickLine={false} />
+                            <XAxis dataKey="name" stroke="#3f3f46" fontSize={9} tickLine={false} />
                             <YAxis stroke="#3f3f46" fontSize={9} tickLine={false} />
                             <Tooltip
                               contentStyle={{ background: "#09090b", border: "1px solid #18181b", borderRadius: "2px" }}
                               labelClassName="text-white text-xs font-bold"
-                              itemStyle={{ fontSize: "11px" }}
+                              itemStyle={{ color: "#dc2626", fontSize: "11px" }}
                             />
-                            <Legend wrapperStyle={{ fontSize: "9px", marginTop: "10px" }} />
-                            {activeWorkspacesToFetch.map((ws, index) => {
-                              const colors = ["#dc2626", "#a1a1aa", "#7f1d1d", "#ef4444", "#52525b"];
-                              const lineColor = colors[index % colors.length];
-                              return (
-                                <Line key={ws} type="monotone" dataKey={ws} stroke={lineColor} strokeWidth={1.5} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                              );
-                            })}
-                            <Line type="monotone" dataKey="Total" stroke="#f4f4f5" strokeWidth={1} strokeDasharray="3 3" name="Total" dot={false} />
+                            <Line type="monotone" dataKey="horas" name="Horas Semanais" stroke="#dc2626" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                           </ReLineChart>
                         </ResponsiveContainer>
                       )}
@@ -511,14 +494,14 @@ export function DashboardView() {
                 <section className="premium-card rounded">
                   <div className="p-4 border-b border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Histórico de Lançamentos</h3>
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Tarefas Realizadas</h3>
                     </div>
                     {/* Minimal Search */}
                     <div className="relative w-full md:w-64">
                       <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
                       <input
                         type="text"
-                        placeholder="Filtrar por profissional ou tarefa..."
+                        placeholder="Filtrar por tarefa..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full bg-[#000000] border border-zinc-900 rounded pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-700 transition-colors"
@@ -533,7 +516,7 @@ export function DashboardView() {
                           <th className="py-3 px-4">Data</th>
                           <th className="py-3 px-4">Workspace</th>
                           <th className="py-3 px-4">Projeto</th>
-                          <th className="py-3 px-4">Tarefa</th>
+                          <th className="py-3 px-4">Tarefa Realizada</th>
                           <th className="py-3 px-4">Profissional</th>
                           <th className="py-3 px-4 text-right">Horas</th>
                         </tr>
@@ -541,7 +524,7 @@ export function DashboardView() {
                       <tbody className="divide-y divide-zinc-900/50 text-[11px]">
                         {paginatedLogs.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-zinc-600">Nenhum apontamento.</td>
+                            <td colSpan={6} className="py-8 text-center text-zinc-600">Nenhum apontamento encontrado.</td>
                           </tr>
                         ) : (
                           paginatedLogs.map((log) => (
@@ -556,7 +539,7 @@ export function DashboardView() {
                                 </span>
                               </td>
                               <td className="py-2.5 px-4 text-zinc-300 max-w-xs truncate">{log.task}</td>
-                              <td className="py-2.5 px-4 text-zinc-400">{log.professional}</td>
+                              <td className="py-2.5 px-4 text-zinc-450">{log.professional}</td>
                               <td className="py-2.5 px-4 text-right font-bold text-white mono-nums">{log.hours.toFixed(1)}h</td>
                             </tr>
                           ))
@@ -599,7 +582,7 @@ export function DashboardView() {
               <section className="premium-card rounded">
                 <div className="p-4 border-b border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">Log Detalhado Consolidado</h3>
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">Log Detalhado de Atividades</h3>
                   </div>
                   <div className="relative w-full md:w-64">
                     <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
@@ -621,8 +604,8 @@ export function DashboardView() {
                         <th className="py-3 px-4">Data</th>
                         <th className="py-3 px-4">Workspace</th>
                         <th className="py-3 px-4">Projeto</th>
-                        <th className="py-3 px-4">Atividade</th>
-                        <th className="py-3 px-4">Colaborador</th>
+                        <th className="py-3 px-4">Atividade Realizada</th>
+                        <th className="py-3 px-4">Profissional</th>
                         <th className="py-3 px-4 text-right">Horas</th>
                       </tr>
                     </thead>
