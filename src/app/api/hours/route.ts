@@ -40,12 +40,19 @@ export async function GET(request: Request) {
       }
     }
 
+    const tfhubApiToken = process.env.TFHUB_API_TOKEN;
+
     // 1.5 Busca os clientes/resumo da API do TFHub para enriquecer squad e investidor
     const clientesSquadMap = new Map<string, string>(); // nome -> squad_nome
     const clientesInvestidorMap = new Map<string, string>(); // nome -> investidor_nome
     const clientesFeeMap = new Map<string, number>(); // nome -> fee
     try {
-      const clientesRes = await fetch(`${tfhubApiUrl}/api/clientes/resumo`);
+      const headers: Record<string, string> = {};
+      if (tfhubApiToken) {
+        headers["Authorization"] = `Bearer ${tfhubApiToken}`;
+      }
+      
+      const clientesRes = await fetch(`${tfhubApiUrl}/api/clientes/resumo`, { headers });
       if (clientesRes.ok) {
         const clientesJson = await clientesRes.json();
         if (Array.isArray(clientesJson)) {
@@ -87,27 +94,47 @@ export async function GET(request: Request) {
       queryParams.append("executorId", executorIdParam);
     }
 
-    // Faz a consulta direta de apontamentos na API REST
-    const response = await fetch(`${apiUrl}/v1.0/time-trackings?${queryParams.toString()}`);
+    // Faz a consulta direta de apontamentos na API REST usando paginação (limite de 500 por página)
+    let list: any[] = [];
+    let page = 1;
+    let hasMore = true;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      return NextResponse.json({
-        error: `A API de apontamentos do eKyte retornou erro: ${response.status}`,
-        details: errText
-      }, { status: response.status });
+    while (hasMore) {
+      const response = await fetch(`${apiUrl}/v1.0/time-trackings?${queryParams.toString()}&page=${page}`);
+      
+      if (!response.ok) {
+        if (page === 1) {
+          const errText = await response.text();
+          return NextResponse.json({
+            error: `A API de apontamentos do eKyte retornou erro: ${response.status}`,
+            details: errText
+          }, { status: response.status });
+        }
+        break;
+      }
+
+      const resJson = await response.json();
+      if (resJson.error) {
+        if (page === 1) {
+          return NextResponse.json({
+            error: "A API do eKyte retornou um erro interno ao ler os apontamentos.",
+            details: resJson.error
+          }, { status: 400 });
+        }
+        break;
+      }
+
+      const data = resJson.data || [];
+      list = list.concat(data);
+
+      if (data.length < 500) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+      
+      if (page > 50) break; // Limite de segurança de 25000 registros (50 páginas)
     }
-
-    const resJson = await response.json();
-
-    if (resJson.error) {
-      return NextResponse.json({
-        error: "A API do eKyte retornou um erro interno ao ler os apontamentos.",
-        details: resJson.error
-      }, { status: 400 });
-    }
-
-    const list = resJson.data || [];
 
     // Mapeamento de índice -> nome do dia em pt-BR
     const DIAS: Record<number, string> = {
@@ -175,6 +202,16 @@ export async function GET(request: Request) {
     // Filtro adicional por Projeto se fornecido
     if (projectFilter && projectFilter !== "Todos" && projectFilter !== "all") {
       rawData = rawData.filter((item: any) => item.project === projectFilter);
+    }
+
+    // Filtro local pela data de execução (já que a API filtra pela criação - createdFrom)
+    if (startDateParam || endDateParam) {
+      rawData = rawData.filter((item: any) => {
+        if (!item.date) return true;
+        if (startDateParam && item.date < startDateParam) return false;
+        if (endDateParam && item.date > endDateParam) return false;
+        return true;
+      });
     }
 
     return NextResponse.json({ data: rawData });
