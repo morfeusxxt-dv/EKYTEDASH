@@ -3,74 +3,63 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/context/auth-context";
 import {
-  BarChart as ReBarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart as ReLineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-  Treemap,
+  BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, LineChart as ReLineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
 import {
-  LogOut,
-  Calendar,
-  Layers,
-  Clock,
-  Briefcase,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  BarChart3,
-  FileText,
-  User,
-  TrendingUp,
-  AlertCircle,
-  CheckCircle2,
-  Activity,
-  ChevronDown,
-  Users,
-  Timer,
-  FolderKanban,
+  LogOut, Calendar, Layers, Clock, Briefcase, Search, ChevronLeft,
+  ChevronRight, BarChart3, FileText, User, Users, Activity, ChevronDown,
+  FolderKanban, TrendingUp, Lightbulb, Thermometer,
 } from "lucide-react";
 
+// ─── Tipos ─────────────────────────────────────────────────────────────────
 interface HourLog {
   id: string;
   date: string;
   task: string;
-  professional: string;
+  professional: string; // email
+  executor: string;     // nome amigável
   hours: number;
   workspace: string;
   project: string;
+  diaSemana: string;
+  diaSemanaIdx: number;
+  horaInicio: number;
+  interno: boolean;
 }
+interface UserInfo { id: string; email: string; name: string; }
 
-interface UserInfo {
-  id: string;
-  email: string;
-  name: string;
+// ─── Helpers ────────────────────────────────────────────────────────────────
+const DIAS_ORDEM = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
+const PALETTE = ["#e6402e","#e66e2e","#4c8de8","#4fae81","#e2a23b","#9b59b6","#1abc9c","#e74c3c"];
+
+function fmtH(min: number): string {
+  if (min < 60) return `${Math.round(min)}m`;
+  const h = min / 60;
+  return h >= 1000 ? `${(h / 1000).toFixed(1)}k` : h % 1 === 0 ? `${h}` : `${h.toFixed(1)}`;
 }
-
-const PIE_COLORS = ["#dc2626", "#b91c1c", "#ef4444", "#f87171", "#fca5a5", "#991b1b", "#7f1d1d", "#450a0a"];
-
-function formatHours(h: number): string {
-  if (h >= 1000) return `${(h / 1000).toFixed(1)}k`;
-  return `${h.toFixed(1)}`;
+function fmtHours(h: number): string {
+  return h >= 1000 ? `${(h / 1000).toFixed(1)}k` : h % 1 === 0 ? `${h}` : `${h.toFixed(1)}`;
 }
+function pct(a: number, b: number): number { return b === 0 ? 0 : Math.round((a / b) * 100); }
+
+const tooltipStyle = {
+  contentStyle: { background: "#1e1f26", border: "1px solid #2a2b33", borderRadius: "8px", fontSize: "12px" },
+  itemStyle: { color: "#e6402e" },
+  labelStyle: { color: "#e8e9ef", fontWeight: "bold" },
+};
+
+// ─── Componente Principal ───────────────────────────────────────────────────
+type Tab = "overview" | "executors" | "workspaces" | "schedule" | "tasks" | "insights" | "log";
 
 export function DashboardView() {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<"overview" | "workspaces" | "detailed">("overview");
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
 
   // Filtros
   const [period, setPeriod] = useState<"current-month" | "last-30" | "custom">("current-month");
   const [selectedInvestor, setSelectedInvestor] = useState<string>("all");
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("all");
-  const [selectedProject, setSelectedProject] = useState<string>("all");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -81,242 +70,272 @@ export function DashboardView() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Paginação
+  // Paginação log
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const itemsPerPage = 12;
+  const itemsPerPage = 15;
 
-  // Carrega usuários do eKyte
+  // ── Carrega usuários
   useEffect(() => {
-    async function loadUsers() {
-      try {
-        const response = await fetch("/api/users");
-        if (response.ok) {
-          const resJson = await response.json();
-          setAllUsers(resJson.data || []);
-        }
-      } catch (err) {
-        console.error("Erro ao carregar usuários", err);
-      }
-    }
-    loadUsers();
+    fetch("/api/users").then(r => r.ok ? r.json() : null).then(j => {
+      if (j?.data) setAllUsers(j.data);
+    }).catch(() => {});
   }, []);
 
-  // Carrega apontamentos
+  // ── Carrega apontamentos
   useEffect(() => {
-    async function fetchData() {
-      if (!user) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const queryParams = new URLSearchParams();
-        queryParams.append("workspaces", user.workspaces.join(","));
+    if (!user) return;
+    setLoading(true);
+    setError(null);
 
-        if (selectedInvestor !== "all") {
-          const matchedUser = allUsers.find(u => u.email === selectedInvestor);
-          if (matchedUser?.id) queryParams.append("executorId", matchedUser.id);
-          queryParams.append("professional", selectedInvestor);
-        }
+    const qp = new URLSearchParams();
+    qp.append("workspaces", user.workspaces.join(","));
 
-        if (selectedProject !== "all") queryParams.append("project", selectedProject);
-
-        let start = "";
-        let end = "";
-        const now = new Date();
-
-        if (period === "current-month") {
-          start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-          end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
-        } else if (period === "last-30") {
-          const d = new Date();
-          d.setDate(now.getDate() - 30);
-          start = d.toISOString().split("T")[0];
-          end = now.toISOString().split("T")[0];
-        } else if (period === "custom" && customStartDate && customEndDate) {
-          start = customStartDate;
-          end = customEndDate;
-        }
-
-        if (start && end) {
-          queryParams.append("startDate", start);
-          queryParams.append("endDate", end);
-        }
-
-        const response = await fetch(`/api/hours?${queryParams.toString()}`);
-        if (response.ok) {
-          const resJson = await response.json();
-          setLogs(resJson.data || []);
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          setError(errData.error || `Erro ${response.status}`);
-          setLogs([]);
-        }
-      } catch (err: any) {
-        setError(err.message || "Erro de rede");
-      } finally {
-        setLoading(false);
-      }
+    if (selectedInvestor !== "all") {
+      const mu = allUsers.find(u => u.email === selectedInvestor);
+      if (mu?.id) qp.append("executorId", mu.id);
+      qp.append("professional", selectedInvestor);
     }
-    fetchData();
-  }, [user, period, selectedProject, customStartDate, customEndDate, selectedInvestor, allUsers]);
 
-  // Filtros locais
-  const filteredLogs = useMemo(() => {
-    return logs.filter((log) => {
-      const matchInvestor = selectedInvestor === "all" || log.professional === selectedInvestor;
-      const matchWorkspace = selectedWorkspace === "all" || log.workspace === selectedWorkspace;
-      const matchSearch =
-        searchQuery === "" ||
-        log.task.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        log.workspace.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        log.professional.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        log.project.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchInvestor && matchWorkspace && matchSearch;
-    });
-  }, [logs, selectedInvestor, selectedWorkspace, searchQuery]);
+    const now = new Date();
+    let start = "", end = "";
+    if (period === "current-month") {
+      start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+      end   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+    } else if (period === "last-30") {
+      const d = new Date(); d.setDate(now.getDate() - 30);
+      start = d.toISOString().split("T")[0];
+      end   = now.toISOString().split("T")[0];
+    } else if (period === "custom" && customStartDate && customEndDate) {
+      start = customStartDate; end = customEndDate;
+    }
+    if (start && end) { qp.append("startDate", start); qp.append("endDate", end); }
 
-  // Listas dinâmicas
-  const workspacesList = useMemo(() => {
-    const set = new Set<string>();
-    (selectedInvestor === "all" ? logs : logs.filter(l => l.professional === selectedInvestor))
-      .forEach(l => set.add(l.workspace));
-    return Array.from(set).sort();
-  }, [logs, selectedInvestor]);
+    fetch(`/api/hours?${qp.toString()}`)
+      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
+      .then(j => { setLogs(j.data || []); })
+      .catch(e => { setError(e?.error || "Erro de rede"); setLogs([]); })
+      .finally(() => setLoading(false));
+  }, [user, period, customStartDate, customEndDate, selectedInvestor, allUsers]);
 
-  const projectsList = useMemo(() => {
-    const set = new Set<string>();
-    logs.forEach(l => set.add(l.project));
-    return Array.from(set).sort();
-  }, [logs]);
+  // ── Filtros locais
+  const filteredLogs = useMemo(() => logs.filter(l =>
+    (selectedWorkspace === "all" || l.workspace === selectedWorkspace) &&
+    (searchQuery === "" || [l.task, l.workspace, l.executor, l.project]
+      .some(f => f.toLowerCase().includes(searchQuery.toLowerCase())))
+  ), [logs, selectedWorkspace, searchQuery]);
 
-  // KPIs
-  const totalHours = useMemo(() => filteredLogs.reduce((a, c) => a + c.hours, 0), [filteredLogs]);
-  const uniqueWorkspaces = useMemo(() => new Set(filteredLogs.map(l => l.workspace)).size, [filteredLogs]);
-  const uniqueProfessionals = useMemo(() => new Set(filteredLogs.map(l => l.professional)).size, [filteredLogs]);
-  const uniqueProjects = useMemo(() => new Set(filteredLogs.map(l => l.project)).size, [filteredLogs]);
-  const totalLogs = filteredLogs.length;
+  // ── Listas dinâmicas
+  const workspacesList = useMemo(() => [...new Set(logs.map(l => l.workspace))].sort(), [logs]);
+  const projectsList   = useMemo(() => [...new Set(logs.map(l => l.project))].sort(), [logs]);
 
-  // Ranking de Workspaces por horas
-  const workspaceRanking = useMemo(() => {
-    const map: Record<string, { name: string; hours: number; logs: number; professionals: Set<string> }> = {};
-    filteredLogs.forEach(log => {
-      if (!map[log.workspace]) {
-        map[log.workspace] = { name: log.workspace, hours: 0, logs: 0, professionals: new Set() };
-      }
-      map[log.workspace].hours += log.hours;
-      map[log.workspace].logs += 1;
-      map[log.workspace].professionals.add(log.professional);
-    });
-    return Object.values(map)
-      .map(ws => ({ ...ws, professionals: ws.professionals.size }))
-      .sort((a, b) => b.hours - a.hours);
-  }, [filteredLogs]);
+  // ── KPIs
+  const totalMin        = useMemo(() => filteredLogs.reduce((a, c) => a + c.hours * 60, 0), [filteredLogs]);
+  const totalHours      = totalMin / 60;
+  const totalLogs       = filteredLogs.length;
+  const uniqueExec      = useMemo(() => new Set(filteredLogs.map(l => l.executor)).size, [filteredLogs]);
+  const uniqueWs        = useMemo(() => new Set(filteredLogs.map(l => l.workspace)).size, [filteredLogs]);
+  const minInterno      = useMemo(() => filteredLogs.filter(l => l.interno).reduce((a, c) => a + c.hours * 60, 0), [filteredLogs]);
+  const minCliente      = totalMin - minInterno;
 
-  const maxWsHours = workspaceRanking[0]?.hours || 1;
-
-  // Ranking de Profissionais por horas
-  const professionalRanking = useMemo(() => {
-    const map: Record<string, { name: string; hours: number; logs: number; workspaces: Set<string> }> = {};
-    filteredLogs.forEach(log => {
-      const key = log.professional;
-      if (!map[key]) map[key] = { name: key, hours: 0, logs: 0, workspaces: new Set() };
-      map[key].hours += log.hours;
-      map[key].logs += 1;
-      map[key].workspaces.add(log.workspace);
+  // ── Ranking executores
+  const execTotals = useMemo(() => {
+    const map: Record<string, { nome: string; min: number; logs: number; wss: Set<string> }> = {};
+    filteredLogs.forEach(l => {
+      const k = l.executor;
+      if (!map[k]) map[k] = { nome: k, min: 0, logs: 0, wss: new Set() };
+      map[k].min += l.hours * 60;
+      map[k].logs += 1;
+      map[k].wss.add(l.workspace);
     });
     return Object.values(map)
-      .map(p => ({ ...p, workspaces: p.workspaces.size }))
-      .sort((a, b) => b.hours - a.hours)
-      .slice(0, 10);
+      .map(e => ({ ...e, wss: e.wss.size }))
+      .sort((a, b) => b.min - a.min);
   }, [filteredLogs]);
 
-  // Gráfico semanal
-  const weeklyChartData = useMemo(() => {
-    const weeksMap: Record<string, number> = { "Sem 1": 0, "Sem 2": 0, "Sem 3": 0, "Sem 4": 0 };
-    filteredLogs.forEach(log => {
-      const day = new Date(log.date).getDate();
-      if (day <= 7) weeksMap["Sem 1"] += log.hours;
-      else if (day <= 14) weeksMap["Sem 2"] += log.hours;
-      else if (day <= 21) weeksMap["Sem 3"] += log.hours;
-      else weeksMap["Sem 4"] += log.hours;
+  // ── Ranking workspaces
+  const wsTotals = useMemo(() => {
+    const map: Record<string, { nome: string; min: number; logs: number; execs: Set<string>; interno: boolean }> = {};
+    filteredLogs.forEach(l => {
+      const k = l.workspace;
+      if (!map[k]) map[k] = { nome: k, min: 0, logs: 0, execs: new Set(), interno: l.interno };
+      map[k].min += l.hours * 60;
+      map[k].logs += 1;
+      map[k].execs.add(l.executor);
     });
-    return Object.entries(weeksMap).map(([name, horas]) => ({ name, horas: parseFloat(horas.toFixed(1)) }));
+    return Object.values(map)
+      .map(w => ({ ...w, execs: w.execs.size }))
+      .sort((a, b) => b.min - a.min);
   }, [filteredLogs]);
 
-  // Pie por tipo de projeto
-  const projectPieData = useMemo(() => {
+  const maxExecMin = execTotals[0]?.min || 1;
+  const maxWsMin   = wsTotals[0]?.min  || 1;
+
+  // ── Donut executores
+  const execPieData = useMemo(() =>
+    execTotals.slice(0, 8).map(e => ({ name: e.nome.split(" ")[0], value: parseFloat((e.min / 60).toFixed(1)) })),
+    [execTotals]);
+
+  // ── Donut interno vs cliente
+  const internoPieData = [
+    { name: "Workspaces de cliente", value: parseFloat((minCliente / 60).toFixed(1)) },
+    { name: "Workspace interno", value: parseFloat((minInterno / 60).toFixed(1)) },
+  ];
+
+  // ── Por dia da semana
+  const minPorDia = useMemo(() => {
     const map: Record<string, number> = {};
-    filteredLogs.forEach(log => {
-      map[log.project] = (map[log.project] || 0) + log.hours;
-    });
-    return Object.entries(map)
-      .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(1)) }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
+    DIAS_ORDEM.forEach(d => { map[d] = 0; });
+    filteredLogs.forEach(l => { if (map[l.diaSemana] !== undefined) map[l.diaSemana] += l.hours * 60; });
+    return DIAS_ORDEM.map(dia => ({ dia, min: map[dia] || 0 }));
   }, [filteredLogs]);
 
-  // Paginação
-  const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
-  const paginatedLogs = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredLogs.slice(start, start + itemsPerPage);
-  }, [filteredLogs, currentPage]);
+  // ── Por hora do dia
+  const horaBuckets = useMemo(() => {
+    const map: Record<number, number> = {};
+    for (let i = 6; i <= 22; i++) map[i] = 0;
+    filteredLogs.forEach(l => { if (l.horaInicio >= 6 && l.horaInicio <= 22) map[l.horaInicio] = (map[l.horaInicio] || 0) + 1; });
+    return map;
+  }, [filteredLogs]);
+  const horaLineData = useMemo(() =>
+    Object.entries(horaBuckets).sort((a, b) => +a[0] - +b[0])
+      .map(([h, v]) => ({ hora: `${String(h).padStart(2, "0")}h`, count: v })),
+    [horaBuckets]);
 
-  useEffect(() => { setCurrentPage(1); }, [selectedInvestor, selectedWorkspace, selectedProject, period, searchQuery]);
+  // ── Heatmap executor × dia
+  const heatData = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {};
+    filteredLogs.forEach(l => {
+      if (!map[l.executor]) { map[l.executor] = {}; DIAS_ORDEM.forEach(d => { map[l.executor][d] = 0; }); }
+      if (DIAS_ORDEM.includes(l.diaSemana)) map[l.executor][l.diaSemana] += l.hours * 60;
+    });
+    return map;
+  }, [filteredLogs]);
+  const maxHeatVal = useMemo(() =>
+    Math.max(1, ...Object.values(heatData).flatMap(e => Object.values(e))),
+    [heatData]);
+
+  function heatColor(val: number): string {
+    if (val === 0) return "rgba(255,255,255,0.02)";
+    const p = val / maxHeatVal;
+    return `rgba(230,64,46,${(0.12 + p * 0.75).toFixed(2)})`;
+  }
+
+  // ── Tipo de tarefa
+  const tipoTarefaData = useMemo(() => {
+    const map: Record<string, { tipo: string; min: number; count: number }> = {};
+    filteredLogs.forEach(l => {
+      if (!map[l.project]) map[l.project] = { tipo: l.project, min: 0, count: 0 };
+      map[l.project].min += l.hours * 60;
+      map[l.project].count += 1;
+    });
+    return Object.values(map).sort((a, b) => b.min - a.min).slice(0, 12);
+  }, [filteredLogs]);
+
+  // ── Insights auto-gerados
+  const insights = useMemo(() => {
+    if (execTotals.length < 2) return [];
+    const topExec = execTotals[0];
+    const lowExec = execTotals[execTotals.length - 1];
+    const spread  = (topExec.min / (lowExec.min || 1)).toFixed(1);
+    const pctInt  = pct(minInterno, totalMin);
+    const pctCli  = 100 - pctInt;
+    const topDia  = [...minPorDia].sort((a, b) => b.min - a.min)[0];
+    const topWs   = wsTotals[0];
+    const topTipo = tipoTarefaData[0];
+    const topTipoPct = topTipo ? pct(topTipo.min, totalMin) : 0;
+    const peakHora = horaLineData.reduce((a, b) => b.count > a.count ? b : a, horaLineData[0]);
+
+    return [
+      {
+        tag: "Distribuição de carga", kind: "warn",
+        title: `Diferença de ${spread}× entre o executor com mais e menos horas`,
+        text: `<b>${topExec.nome}</b> registrou <b>${fmtH(topExec.min)}h</b> no período, enquanto <b>${lowExec.nome}</b> registrou apenas <b>${fmtH(lowExec.min)}h</b>. Vale entender se a diferença reflete alocação de projetos, ausências ou subregistro de horas.`,
+      },
+      {
+        tag: "Interno vs. cliente", kind: pctInt > 30 ? "warn" : "good",
+        title: `${pctInt}% das horas foram para workspace interno`,
+        text: `De <b>${fmtH(totalMin)}h</b> totais, <b>${fmtH(minInterno)}h (${pctInt}%)</b> foram internas e <b>${pctCli}%</b> em contas de cliente. O workspace com mais horas foi <b>${topWs?.nome || "—"}</b> com <b>${fmtH(topWs?.min || 0)}h</b>.`,
+      },
+      {
+        tag: "Ritmo semanal", kind: "default",
+        title: `${topDia?.dia || "—"}-feira concentra o pico de horas (${fmtH(topDia?.min || 0)}h)`,
+        text: `O volume de horas é maior em <b>${topDia?.dia || "—"}</b>, com queda natural nos fins de semana. O time mantém um ritmo consistente ao longo da semana.`,
+      },
+      {
+        tag: "Workspaces", kind: "info",
+        title: `${uniqueWs} workspaces ativos com ${totalLogs} apontamentos`,
+        text: `O workspace mais demandado é <b>${topWs?.nome || "—"}</b> com <b>${fmtH(topWs?.min || 0)}h</b> registradas e <b>${topWs?.execs || 0} profissionais</b> envolvidos.`,
+      },
+      {
+        tag: "Classificação de tarefas", kind: topTipoPct > 40 ? "warn" : "default",
+        title: topTipo ? `"${topTipo.tipo.length > 40 ? topTipo.tipo.slice(0, 38) + "…" : topTipo.tipo}" concentra ${topTipoPct}% das horas` : "Nenhum tipo de tarefa identificado",
+        text: topTipo ? `Esse tipo de tarefa concentra <b>${fmtH(topTipo.min)}h</b> — ${topTipoPct > 40 ? "um percentual alto que pode indicar uso como categoria catch-all em vez de classificação correta" : "dentro de um limite razoável de concentração"}.` : "Dados insuficientes.",
+      },
+      {
+        tag: "Janela de trabalho", kind: "good",
+        title: peakHora ? `Concentração forte de início às ${peakHora.hora}` : "Padrão de início de tarefas",
+        text: peakHora
+          ? `O horário de início mais comum dos apontamentos é <b>${peakHora.hora}</b>, com <b>${peakHora.count} apontamentos</b>. O time mantém uma janela de trabalho bem definida.`
+          : "Não há dados de horário disponíveis para este período.",
+      },
+    ];
+  }, [execTotals, minInterno, totalMin, minPorDia, wsTotals, tipoTarefaData, horaLineData, uniqueWs, totalLogs]);
+
+  // ── Paginação log
+  const totalPages   = Math.ceil(filteredLogs.length / itemsPerPage);
+  const paginatedLogs = useMemo(() => filteredLogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredLogs, currentPage]);
+  useEffect(() => { setCurrentPage(1); }, [selectedInvestor, selectedWorkspace, period, searchQuery]);
+
+  // ─── NAV ITEMS ─────────────────────────────────────────────────────────────
+  const navItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "overview",   label: "Visão Geral",    icon: <BarChart3   className="w-3.5 h-3.5 shrink-0" /> },
+    { id: "executors",  label: "Por Executor",   icon: <Users        className="w-3.5 h-3.5 shrink-0" /> },
+    { id: "workspaces", label: "Por Workspace",  icon: <Layers       className="w-3.5 h-3.5 shrink-0" /> },
+    { id: "schedule",   label: "Ritmo Semanal",  icon: <Thermometer  className="w-3.5 h-3.5 shrink-0" /> },
+    { id: "tasks",      label: "Tipos de Tarefa",icon: <FolderKanban className="w-3.5 h-3.5 shrink-0" /> },
+    { id: "insights",   label: "Insights",       icon: <Lightbulb    className="w-3.5 h-3.5 shrink-0" /> },
+    { id: "log",        label: "Log de Horas",   icon: <FileText     className="w-3.5 h-3.5 shrink-0" /> },
+  ];
 
   return (
-    <div className="flex min-h-screen" style={{ background: "#000000", color: "#f4f4f5" }}>
-      
-      {/* ─── SIDEBAR ─── */}
+    <div className="flex min-h-screen" style={{ background: "var(--background)", color: "var(--foreground)" }}>
+
+      {/* ─── SIDEBAR ───────────────────────────────────────────────────────── */}
       <aside className="w-52 shrink-0 flex flex-col justify-between py-5 px-3 z-20 border-r" style={{ background: "var(--sidebar-bg)", borderColor: "var(--border)" }}>
         <div>
           {/* Logo */}
-          <div className="flex items-center gap-2 mb-7 px-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center" style={{ background: "#dc2626" }}>
+          <div className="flex items-center gap-2 mb-6 px-2">
+            <div className="w-6 h-6 rounded flex items-center justify-center" style={{ background: "var(--red)" }}>
               <span className="text-white font-black text-xs">eK</span>
             </div>
-            <span className="text-[11px] font-bold tracking-wider uppercase text-white">eKyte<span className="font-normal" style={{ color: "var(--text-muted)" }}> Dash</span></span>
+            <span className="text-[11px] font-bold tracking-wider uppercase" style={{ color: "var(--off-white)" }}>
+              eKyte<span className="font-normal" style={{ color: "var(--muted)" }}> Dash</span>
+            </span>
           </div>
 
           {/* Nav */}
           <nav className="space-y-0.5">
-            <button onClick={() => setActiveTab("overview")} className={`nav-item ${activeTab === "overview" ? "active" : ""}`}>
-              <BarChart3 className="w-3.5 h-3.5 shrink-0" />
-              Visão Geral
-            </button>
-            <button onClick={() => setActiveTab("workspaces")} className={`nav-item ${activeTab === "workspaces" ? "active" : ""}`}>
-              <Layers className="w-3.5 h-3.5 shrink-0" />
-              Workspaces
-            </button>
-            <button onClick={() => setActiveTab("detailed")} className={`nav-item ${activeTab === "detailed" ? "active" : ""}`}>
-              <FileText className="w-3.5 h-3.5 shrink-0" />
-              Log de Horas
-            </button>
+            {navItems.map(n => (
+              <button key={n.id} onClick={() => setActiveTab(n.id)} className={`nav-item ${activeTab === n.id ? "active" : ""}`}>
+                {n.icon}{n.label}
+              </button>
+            ))}
           </nav>
 
-          {/* Divider */}
-          <div className="my-5 border-t" style={{ borderColor: "var(--border)" }} />
-
-          {/* Stats quick view */}
-          <div className="px-2 space-y-3">
-            <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Resumo</p>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Total horas</span>
-                <span className="text-[11px] font-bold text-white mono-nums">{formatHours(totalHours)}h</span>
+          {/* Mini stats */}
+          <div className="mt-5 border-t pt-5 px-2 space-y-2.5" style={{ borderColor: "var(--border)" }}>
+            <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: "var(--muted-2)" }}>Resumo</p>
+            {[
+              { label: "Horas", value: `${fmtHours(totalHours)}h` },
+              { label: "Workspaces", value: String(uniqueWs) },
+              { label: "Executores", value: String(uniqueExec) },
+              { label: "Apontamentos", value: String(totalLogs) },
+            ].map(s => (
+              <div key={s.label} className="flex items-center justify-between">
+                <span className="text-[10px]" style={{ color: "var(--muted)" }}>{s.label}</span>
+                <span className="text-[11px] font-bold mono-nums" style={{ color: "var(--off-white)" }}>{s.value}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Workspaces</span>
-                <span className="text-[11px] font-bold text-white mono-nums">{uniqueWorkspaces}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Profissionais</span>
-                <span className="text-[11px] font-bold text-white mono-nums">{uniqueProfessionals}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Apontamentos</span>
-                <span className="text-[11px] font-bold text-white mono-nums">{totalLogs}</span>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -325,438 +344,512 @@ export function DashboardView() {
           <div className="border-t mb-3" style={{ borderColor: "var(--border)" }} />
           <div className="px-2">
             <div className="flex items-center gap-2 mb-2.5">
-              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold uppercase border" style={{ background: "rgba(220,38,38,0.08)", borderColor: "rgba(220,38,38,0.2)", color: "#f87171" }}>
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold uppercase border"
+                style={{ background: "var(--red-soft)", borderColor: "rgba(230,64,46,0.2)", color: "var(--red)" }}>
                 {user?.name?.slice(0, 2) || "?"}
               </div>
               <div className="truncate">
-                <p className="text-[10px] font-semibold text-white truncate">{user?.name}</p>
-                <p className="text-[9px]" style={{ color: "var(--text-muted)" }}>Gestor</p>
+                <p className="text-[10px] font-semibold truncate" style={{ color: "var(--off-white)" }}>{user?.name}</p>
+                <p className="text-[9px]" style={{ color: "var(--muted)" }}>Gestor</p>
               </div>
             </div>
-            <button
-              onClick={logout}
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-[10px] font-semibold transition-colors"
-              style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-              onMouseEnter={e => { (e.target as HTMLElement).style.color = "#f87171"; }}
-              onMouseLeave={e => { (e.target as HTMLElement).style.color = "var(--text-muted)"; }}
-            >
-              <LogOut className="w-3 h-3" />
-              Sair
+            <button onClick={logout} className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-[10px] font-semibold transition-colors"
+              style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--muted)" }}
+              onMouseEnter={e => { (e.currentTarget).style.color = "var(--red)"; }}
+              onMouseLeave={e => { (e.currentTarget).style.color = "var(--muted)"; }}>
+              <LogOut className="w-3 h-3" /> Sair
             </button>
           </div>
         </div>
       </aside>
 
-      {/* ─── MAIN ─── */}
+      {/* ─── MAIN ──────────────────────────────────────────────────────────── */}
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
 
         {/* ── TOPBAR ── */}
-        <header className="h-14 flex items-center justify-between px-5 shrink-0 border-b" style={{ background: "#000", borderColor: "var(--border)" }}>
+        <header className="h-14 flex items-center justify-between px-5 shrink-0 border-b" style={{ background: "var(--background)", borderColor: "var(--border)" }}>
           <div className="flex items-center gap-3">
-            {/* Period selector */}
             <div className="flex rounded overflow-hidden border text-[10px]" style={{ borderColor: "var(--border)" }}>
               {(["current-month", "last-30", "custom"] as const).map((p, i) => (
-                <button
-                  key={p}
-                  onClick={() => setPeriod(p)}
-                  className="px-3 py-1.5 font-medium transition-colors"
-                  style={{
-                    background: period === p ? "#111113" : "transparent",
-                    color: period === p ? "#fff" : "var(--text-muted)",
-                    borderLeft: i > 0 ? "1px solid var(--border)" : "none"
-                  }}
-                >
+                <button key={p} onClick={() => setPeriod(p)} className="px-3 py-1.5 font-semibold transition-colors" style={{
+                  background: period === p ? "var(--card)" : "transparent",
+                  color: period === p ? "var(--off-white)" : "var(--muted)",
+                  borderLeft: i > 0 ? "1px solid var(--border)" : "none"
+                }}>
                   {p === "current-month" ? "Mês Atual" : p === "last-30" ? "30 Dias" : "Período"}
                 </button>
               ))}
             </div>
             {period === "custom" && (
               <div className="flex items-center gap-1.5 rounded border px-2 py-1 text-[10px]" style={{ borderColor: "var(--border)" }}>
-                <Calendar className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
-                <input type="date" value={customStartDate} onChange={e => setCustomStartDate(e.target.value)} className="bg-transparent text-white border-0 w-24 text-[10px]" />
-                <span style={{ color: "var(--text-muted)" }}>–</span>
-                <input type="date" value={customEndDate} onChange={e => setCustomEndDate(e.target.value)} className="bg-transparent text-white border-0 w-24 text-[10px]" />
+                <Calendar className="w-3 h-3" style={{ color: "var(--muted)" }} />
+                <input type="date" value={customStartDate} onChange={e => setCustomStartDate(e.target.value)} className="bg-transparent text-[10px] border-0 w-24" style={{ color: "var(--off-white)" }} />
+                <span style={{ color: "var(--muted)" }}>–</span>
+                <input type="date" value={customEndDate} onChange={e => setCustomEndDate(e.target.value)} className="bg-transparent text-[10px] border-0 w-24" style={{ color: "var(--off-white)" }} />
               </div>
             )}
           </div>
-
-          {/* Right filters */}
           <div className="flex items-center gap-2">
-            {/* Professional */}
+            {/* Profissional */}
             <div className="relative flex items-center">
-              <User className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--text-muted)" }} />
-              <select
-                value={selectedInvestor}
-                onChange={e => setSelectedInvestor(e.target.value)}
+              <User className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--muted)" }} />
+              <select value={selectedInvestor} onChange={e => setSelectedInvestor(e.target.value)}
                 className="pl-6 pr-6 py-1.5 rounded border text-[10px] font-semibold appearance-none cursor-pointer"
-                style={{ background: "#050507", borderColor: "var(--border)", color: selectedInvestor !== "all" ? "#f87171" : "var(--text-muted)" }}
-              >
+                style={{ background: "var(--sidebar-bg)", borderColor: "var(--border)", color: selectedInvestor !== "all" ? "var(--red)" : "var(--muted)" }}>
                 <option value="all">Todos os Profissionais</option>
-                {allUsers.map(u => (
-                  <option key={u.email} value={u.email}>{u.name} ({u.email})</option>
-                ))}
+                {allUsers.map(u => <option key={u.email} value={u.email}>{u.name || u.email}</option>)}
               </select>
-              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
+              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--muted)" }} />
             </div>
-
             {/* Workspace */}
             <div className="relative flex items-center">
-              <Layers className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--text-muted)" }} />
-              <select
-                value={selectedWorkspace}
-                onChange={e => setSelectedWorkspace(e.target.value)}
+              <Layers className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--muted)" }} />
+              <select value={selectedWorkspace} onChange={e => setSelectedWorkspace(e.target.value)}
                 className="pl-6 pr-6 py-1.5 rounded border text-[10px] font-medium appearance-none cursor-pointer"
-                style={{ background: "#050507", borderColor: "var(--border)", color: selectedWorkspace !== "all" ? "#fff" : "var(--text-muted)" }}
-              >
+                style={{ background: "var(--sidebar-bg)", borderColor: "var(--border)", color: selectedWorkspace !== "all" ? "var(--off-white)" : "var(--muted)" }}>
                 <option value="all">Todos os Workspaces</option>
-                {workspacesList.map(ws => <option key={ws} value={ws}>{ws}</option>)}
+                {workspacesList.map(w => <option key={w} value={w}>{w}</option>)}
               </select>
-              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
-            </div>
-
-            {/* Project */}
-            <div className="relative flex items-center">
-              <FolderKanban className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--text-muted)" }} />
-              <select
-                value={selectedProject}
-                onChange={e => setSelectedProject(e.target.value)}
-                className="pl-6 pr-6 py-1.5 rounded border text-[10px] font-medium appearance-none cursor-pointer"
-                style={{ background: "#050507", borderColor: "var(--border)", color: selectedProject !== "all" ? "#fff" : "var(--text-muted)" }}
-              >
-                <option value="all">Todos os Projetos</option>
-                {projectsList.map(pj => <option key={pj} value={pj}>{pj}</option>)}
-              </select>
-              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
+              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--muted)" }} />
             </div>
           </div>
         </header>
 
-        {/* ── PAGE CONTENT ── */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          
+        {/* ── CONTENT ── */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {loading ? (
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center gap-3">
-              <div className="w-8 h-8 rounded-full border-2 spin-loader" style={{ borderColor: "var(--border)", borderTopColor: "#dc2626" }} />
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Consultando API eKyte...</p>
+              <div className="w-8 h-8 rounded-full border-2 spin-loader" style={{ borderColor: "var(--border)", borderTopColor: "var(--red)" }} />
+              <p className="text-xs" style={{ color: "var(--muted)" }}>Consultando API eKyte...</p>
             </div>
           ) : error ? (
             <div className="min-h-[400px] flex flex-col items-center justify-center gap-4 max-w-md mx-auto text-center">
-              <div className="p-3 rounded border" style={{ borderColor: "rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.05)" }}>
-                <AlertCircle className="w-5 h-5 text-red-500" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white mb-1">Conexão com eKyte</p>
-                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{error}</p>
-              </div>
-              <div className="text-[10px] rounded border p-3 w-full text-left" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
-                Verifique as variáveis de ambiente <strong className="text-white">EKYTE_API_TOKEN</strong> e <strong className="text-white">EKYTE_COMPANY_ID</strong> na Vercel e faça um Redeploy.
+              <p className="text-xs font-bold" style={{ color: "var(--off-white)" }}>Erro de conexão com eKyte</p>
+              <p className="text-[11px]" style={{ color: "var(--muted)" }}>{error}</p>
+              <div className="text-[10px] rounded border p-3 w-full text-left" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>
+                Verifique <strong style={{ color: "var(--off-white)" }}>EKYTE_API_TOKEN</strong> e <strong style={{ color: "var(--off-white)" }}>EKYTE_COMPANY_ID</strong>.
               </div>
             </div>
           ) : (
             <>
-
-              {/* ─── KPI STRIP ─── */}
-              <div className="grid grid-cols-5 gap-3">
+              {/* ─── KPI Strip — sempre visível ──────────────────────────────── */}
+              <div className="grid grid-cols-6 gap-3">
                 {[
-                  { label: "Horas Totais", value: `${formatHours(totalHours)}h`, icon: <Clock className="w-3.5 h-3.5" />, mono: true },
-                  { label: "Workspaces", value: String(uniqueWorkspaces), icon: <Layers className="w-3.5 h-3.5" />, mono: true },
-                  { label: "Profissionais", value: String(uniqueProfessionals), icon: <Users className="w-3.5 h-3.5" />, mono: true },
-                  { label: "Projetos", value: String(uniqueProjects), icon: <Briefcase className="w-3.5 h-3.5" />, mono: true },
-                  { label: "Apontamentos", value: String(totalLogs), icon: <Activity className="w-3.5 h-3.5" />, mono: true },
+                  { label: "Total de Horas", value: `${fmtHours(totalHours)}h`, icon: <Clock className="w-4 h-4" /> },
+                  { label: "Apontamentos",   value: String(totalLogs),           icon: <Activity className="w-4 h-4" /> },
+                  { label: "Executores",     value: String(uniqueExec),           icon: <Users className="w-4 h-4" /> },
+                  { label: "Workspaces",     value: String(uniqueWs),            icon: <Layers className="w-4 h-4" /> },
+                  { label: "Horas Cliente",  value: `${fmtHours(minCliente / 60)}h`, icon: <Briefcase className="w-4 h-4" /> },
+                  { label: "Horas Interno",  value: `${fmtHours(minInterno / 60)}h`, icon: <TrendingUp className="w-4 h-4" /> },
                 ].map((kpi, i) => (
-                  <div key={i} className="kpi-card rounded-md p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>{kpi.label}</span>
-                      <span style={{ color: "var(--text-muted)" }}>{kpi.icon}</span>
-                    </div>
-                    <p className={`text-xl font-extrabold text-white ${kpi.mono ? "mono-nums" : ""}`}>{kpi.value}</p>
+                  <div key={i} className="kpi">
+                    <div className="kpi-icon">{kpi.icon}</div>
+                    <div className="kpi-num">{kpi.value}</div>
+                    <div className="kpi-lbl">{kpi.label}</div>
                   </div>
                 ))}
               </div>
 
-              {/* ─── OVERVIEW TAB ─── */}
+              {/* ─── OVERVIEW ─────────────────────────────────────────────── */}
               {activeTab === "overview" && (
-                <>
-                  {/* Charts row */}
-                  <div className="grid grid-cols-5 gap-4">
-                    {/* Weekly bar */}
-                    <div className="col-span-3 premium-card rounded-md p-4">
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-4" style={{ color: "var(--text-muted)" }}>Evolução Semanal — Horas</p>
-                      <div className="h-48">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <ReBarChart data={weeklyChartData} margin={{ top: 5, right: 0, left: -30, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="2 4" stroke="#0d0d0f" vertical={false} />
-                            <XAxis dataKey="name" stroke="#27272a" fontSize={9} tickLine={false} axisLine={false} />
-                            <YAxis stroke="#27272a" fontSize={9} tickLine={false} axisLine={false} />
-                            <Tooltip
-                              contentStyle={{ background: "#08080a", border: "1px solid #1a1a1d", borderRadius: "4px", fontSize: "11px" }}
-                              itemStyle={{ color: "#f87171" }}
-                              labelStyle={{ color: "#fff", fontWeight: "bold" }}
-                              formatter={(val: any) => [`${val}h`, "Horas"]}
-                            />
-                            <Bar dataKey="horas" fill="#dc2626" radius={[2, 2, 0, 0]} maxBarSize={36} />
-                          </ReBarChart>
-                        </ResponsiveContainer>
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-5">
+                    {/* Top 5 executores */}
+                    <div className="card">
+                      <div className="mb-4">
+                        <p className="section-title">Por Executor <span className="section-tag">Ranking de horas</span></p>
+                        <p className="section-sub mt-1">Total por pessoa no período</p>
+                      </div>
+                      <div>
+                        {execTotals.slice(0, 5).map((e, i) => (
+                          <div key={e.nome} className="rank-row">
+                            <span className="rank-pos" style={{ color: i === 0 ? "var(--red)" : "var(--muted-2)" }}>{i + 1}</span>
+                            <span className="rank-name">{e.nome}</span>
+                            <div className="rank-barbg">
+                              <div className="rank-barfill" style={{ width: `${pct(e.min, maxExecMin)}%` }} />
+                            </div>
+                            <span className="rank-val">{fmtH(e.min)}h</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-
-                    {/* Pie chart - project types */}
-                    <div className="col-span-2 premium-card rounded-md p-4">
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-4" style={{ color: "var(--text-muted)" }}>Distribuição por Projeto</p>
-                      {projectPieData.length === 0 ? (
-                        <div className="h-48 flex items-center justify-center text-xs" style={{ color: "var(--text-muted)" }}>Sem dados</div>
-                      ) : (
-                        <div className="flex items-center gap-3">
-                          <div style={{ width: 140, height: 140 }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={projectPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={62} strokeWidth={0}>
-                                  {projectPieData.map((_, index) => (
-                                    <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                  ))}
-                                </Pie>
-                                <Tooltip
-                                  contentStyle={{ background: "#08080a", border: "1px solid #1a1a1d", borderRadius: "4px", fontSize: "11px" }}
-                                  itemStyle={{ color: "#f87171" }}
-                                  formatter={(val: any) => [`${val}h`, ""]}
-                                />
-                              </PieChart>
-                            </ResponsiveContainer>
+                    {/* Top 5 workspaces */}
+                    <div className="card">
+                      <div className="mb-4">
+                        <p className="section-title">Por Workspace <span className="section-tag">Ranking</span></p>
+                        <p className="section-sub mt-1">Workspaces que mais consumiram horas</p>
+                      </div>
+                      <div>
+                        {wsTotals.slice(0, 5).map((w, i) => (
+                          <div key={w.nome} className="rank-row">
+                            <span className="rank-pos" style={{ color: i === 0 ? "var(--red)" : "var(--muted-2)" }}>{i + 1}</span>
+                            <span className="rank-name">{w.nome} <span className={`ws-tag ${w.interno ? "interno" : "cliente"}`}>{w.interno ? "int" : "cli"}</span></span>
+                            <div className="rank-barbg">
+                              <div className="rank-barfill" style={{ width: `${pct(w.min, maxWsMin)}%` }} />
+                            </div>
+                            <span className="rank-val">{fmtH(w.min)}h</span>
                           </div>
-                          <div className="flex-1 space-y-1.5 min-w-0">
-                            {projectPieData.slice(0, 5).map((p, i) => (
-                              <div key={i} className="flex items-center gap-1.5 min-w-0">
-                                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                                <span className="text-[9px] truncate" style={{ color: "#a1a1aa" }} title={p.name}>{p.name}</span>
-                                <span className="text-[9px] font-bold text-white ml-auto mono-nums shrink-0">{p.value}h</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                        ))}
+                      </div>
                     </div>
                   </div>
-
-                  {/* Top 5 workspace ranking */}
-                  <div className="premium-card rounded-md p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Top Workspaces por Horas</p>
-                      <button
-                        onClick={() => setActiveTab("workspaces")}
-                        className="text-[9px] font-semibold px-2 py-0.5 rounded"
-                        style={{ color: "#f87171", background: "rgba(220,38,38,0.07)", border: "1px solid rgba(220,38,38,0.15)" }}
-                      >
-                        Ver todos →
-                      </button>
+                  {/* Bar semanal overview */}
+                  <div className="card">
+                    <p className="section-title mb-4">Horas por dia da semana <span className="section-tag">Ritmo</span></p>
+                    <div className="h-52">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ReBarChart data={minPorDia} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                          <XAxis dataKey="dia" stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => v.slice(0, 3)} />
+                          <YAxis stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => `${(v / 60).toFixed(0)}h`} />
+                          <Tooltip {...tooltipStyle} formatter={(v: any) => [`${fmtH(v as number)}h`, "Horas"]} />
+                          <Bar dataKey="min" fill="var(--red)" radius={[4, 4, 0, 0]} maxBarSize={40}
+                            label={false}
+                            isAnimationActive={true} />
+                        </ReBarChart>
+                      </ResponsiveContainer>
                     </div>
-                    <div className="space-y-2.5">
-                      {workspaceRanking.slice(0, 5).map((ws, i) => (
-                        <div key={ws.name} className="flex items-center gap-3">
-                          <span className="text-[9px] font-bold mono-nums w-4 shrink-0 text-right" style={{ color: i === 0 ? "#dc2626" : "var(--text-muted)" }}>
-                            {i + 1}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] font-medium text-white truncate" title={ws.name}>{ws.name}</span>
-                              <span className="text-[10px] font-bold text-white mono-nums ml-2 shrink-0">{ws.hours.toFixed(1)}h</span>
-                            </div>
-                            <div className="progress-bar">
-                              <div className="progress-fill" style={{ width: `${(ws.hours / maxWsHours) * 100}%` }} />
-                            </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── EXECUTORS ─────────────────────────────────────────────── */}
+              {activeTab === "executors" && (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-5">
+                    {/* Ranking completo */}
+                    <div className="card">
+                      <div className="mb-4">
+                        <p className="section-title">Ranking de Executores <span className="section-tag">Horas totais</span></p>
+                        <p className="section-sub mt-1">Horas realizadas no período por pessoa</p>
+                      </div>
+                      {execTotals.map((e, i) => (
+                        <div key={e.nome} className="rank-row">
+                          <span className="rank-pos" style={{ color: i === 0 ? "var(--red)" : "var(--muted-2)" }}>{i + 1}</span>
+                          <span className="rank-name">{e.nome}</span>
+                          <div className="rank-barbg">
+                            <div className="rank-barfill" style={{ width: `${pct(e.min, maxExecMin)}%` }} />
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium">{ws.professionals} prof.</span>
-                            <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium mono-nums">{ws.logs} apont.</span>
-                          </div>
+                          <span className="rank-val">{fmtH(e.min)}h</span>
                         </div>
                       ))}
                     </div>
-                  </div>
-
-                  {/* Top Profissionais */}
-                  <div className="premium-card rounded-md overflow-hidden">
-                    <div className="px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
-                      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Ranking de Profissionais</p>
+                    {/* Donut executores */}
+                    <div className="card flex flex-col items-center">
+                      <p className="section-title mb-4 w-full">Distribuição de horas</p>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie data={execPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={110} strokeWidth={0}>
+                            {execPieData.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+                          </Pie>
+                          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "11px", color: "var(--muted)" }} />
+                          <Tooltip {...tooltipStyle} formatter={(v: any) => [`${v}h`, ""]} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      {/* Tabela detalhada */}
+                      <div className="w-full mt-4">
+                        <table className="v4-table">
+                          <thead><tr>
+                            <th>#</th><th>Executor</th><th>Workspaces</th><th>Apont.</th><th style={{ textAlign: "right" }}>Horas</th>
+                          </tr></thead>
+                          <tbody>
+                            {execTotals.map((e, i) => (
+                              <tr key={e.nome}>
+                                <td><span style={{ fontFamily: "Montserrat", fontWeight: 700, color: i === 0 ? "var(--red)" : "var(--muted)" }}>{i + 1}</span></td>
+                                <td style={{ fontWeight: 600 }}>{e.nome}</td>
+                                <td><span className="ws-tag cliente">{e.wss} ws</span></td>
+                                <td style={{ color: "var(--muted)" }}>{e.logs}</td>
+                                <td className="num">{fmtH(e.min)}h</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                          {["#", "Profissional", "Workspaces", "Apontamentos", "Horas"].map((h, i) => (
-                            <th key={i} className={`py-2.5 px-4 text-[9px] font-bold uppercase tracking-wider ${i === 4 ? "text-right" : "text-left"}`} style={{ color: "var(--text-muted)", background: "#03030a" }}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {professionalRanking.map((p, i) => (
-                          <tr key={p.name} className="table-row-hover border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                            <td className="py-2.5 px-4 text-[10px] font-bold mono-nums" style={{ color: i === 0 ? "#dc2626" : "var(--text-muted)" }}>{i + 1}</td>
-                            <td className="py-2.5 px-4 text-[11px] text-white font-medium">{p.name}</td>
-                            <td className="py-2.5 px-4">
-                              <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium">{p.workspaces} ws</span>
-                            </td>
-                            <td className="py-2.5 px-4 text-[10px] mono-nums" style={{ color: "var(--text-muted)" }}>{p.logs}</td>
-                            <td className="py-2.5 px-4 text-right text-[11px] font-bold text-white mono-nums">{p.hours.toFixed(1)}h</td>
-                          </tr>
-                        ))}
-                        {professionalRanking.length === 0 && (
-                          <tr><td colSpan={5} className="py-8 text-center text-xs" style={{ color: "var(--text-muted)" }}>Nenhum dado</td></tr>
-                        )}
-                      </tbody>
-                    </table>
                   </div>
-                </>
+                </div>
               )}
 
-              {/* ─── WORKSPACES TAB ─── */}
+              {/* ─── WORKSPACES ────────────────────────────────────────────── */}
               {activeTab === "workspaces" && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-white">{workspaceRanking.length} workspaces com apontamentos</p>
-                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Ordenado por horas decrescentes</p>
-                  </div>
-                  <div className="premium-card rounded-md overflow-hidden">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                          {["#", "Workspace", "Profissionais", "Apontamentos", "Distribuição", "Total Horas"].map((h, i) => (
-                            <th key={i} className={`py-3 px-4 text-[9px] font-bold uppercase tracking-wider ${i >= 4 ? "text-right" : "text-left"}`} style={{ color: "var(--text-muted)", background: "#03030a" }}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {workspaceRanking.map((ws, i) => (
-                          <tr key={ws.name} className="table-row-hover border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                            <td className="py-3 px-4 text-[10px] font-bold mono-nums" style={{ color: i === 0 ? "#dc2626" : "var(--text-muted)" }}>{i + 1}</td>
-                            <td className="py-3 px-4">
-                              <span className="text-[11px] font-medium text-white">{ws.name}</span>
-                            </td>
-                            <td className="py-3 px-4">
-                              <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium">{ws.professionals} prof.</span>
-                            </td>
-                            <td className="py-3 px-4 text-[10px] mono-nums" style={{ color: "var(--text-muted)" }}>{ws.logs} apont.</td>
-                            <td className="py-3 px-4 w-32">
-                              <div className="progress-bar">
-                                <div className="progress-fill" style={{ width: `${(ws.hours / maxWsHours) * 100}%` }} />
-                              </div>
-                            </td>
-                            <td className="py-3 px-4 text-right text-[12px] font-bold text-white mono-nums">{ws.hours.toFixed(1)}h</td>
-                          </tr>
-                        ))}
-                        {workspaceRanking.length === 0 && (
-                          <tr><td colSpan={6} className="py-8 text-center text-xs" style={{ color: "var(--text-muted)" }}>Nenhum workspace com apontamentos no período</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Workspace charts */}
-                  {workspaceRanking.length > 0 && (
-                    <div className="premium-card rounded-md p-4">
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-4" style={{ color: "var(--text-muted)" }}>Top Workspaces — Gráfico de Horas</p>
-                      <div className="h-64">
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-5">
+                    {/* Bar horizontal */}
+                    <div className="card">
+                      <div className="mb-4">
+                        <p className="section-title">Ranking de Workspaces <span className="section-tag">Interno vs. Cliente</span></p>
+                        <p className="section-sub mt-1">Onde as horas do time estão sendo investidas</p>
+                      </div>
+                      <div className="h-72">
                         <ResponsiveContainer width="100%" height="100%">
-                          <ReBarChart data={workspaceRanking.slice(0, 10)} layout="vertical" margin={{ top: 0, right: 0, left: 110, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="2 4" stroke="#0d0d0f" horizontal={false} />
-                            <XAxis type="number" stroke="#27272a" fontSize={9} tickLine={false} axisLine={false} />
-                            <YAxis type="category" dataKey="name" stroke="#27272a" fontSize={9} tickLine={false} axisLine={false} width={110} tick={{ fill: "#71717a" }} />
-                            <Tooltip
-                              contentStyle={{ background: "#08080a", border: "1px solid #1a1a1d", borderRadius: "4px", fontSize: "11px" }}
-                              itemStyle={{ color: "#f87171" }}
-                              labelStyle={{ color: "#fff", fontWeight: "bold" }}
-                              formatter={(val: any) => [`${parseFloat(val).toFixed(1)}h`, "Horas"]}
-                            />
-                            <Bar dataKey="hours" fill="#dc2626" radius={[0, 2, 2, 0]} maxBarSize={14} />
+                          <ReBarChart data={wsTotals.slice(0, 10)} layout="vertical" margin={{ top: 0, right: 0, left: 130, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+                            <XAxis type="number" stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => `${(v / 60).toFixed(0)}h`} />
+                            <YAxis type="category" dataKey="nome" stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} width={130} tick={{ fill: "var(--muted)" }} />
+                            <Tooltip {...tooltipStyle} formatter={(v: any) => [`${fmtH(v as number)}h`, "Horas"]} />
+                            <Bar dataKey="min" fill="var(--red)" radius={[0, 4, 4, 0]} maxBarSize={16} />
                           </ReBarChart>
                         </ResponsiveContainer>
                       </div>
+                    </div>
+                    {/* Donut interno vs cliente */}
+                    <div className="card flex flex-col">
+                      <p className="section-title mb-2">Interno vs. Cliente</p>
+                      <p className="section-sub mb-4">Como as horas se dividem entre atividades internas e contas de clientes</p>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <PieChart>
+                          <Pie data={internoPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={95} strokeWidth={0}>
+                            <Cell fill="var(--green)" />
+                            <Cell fill="var(--blue)" />
+                          </Pie>
+                          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "11px", color: "var(--muted)" }} />
+                          <Tooltip {...tooltipStyle} formatter={(v: any) => [`${v}h`, ""]} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      {/* Resumo texto */}
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        {[
+                          { label: "Cliente", value: `${fmtHours(minCliente / 60)}h`, pct: pct(minCliente, totalMin), color: "var(--green)" },
+                          { label: "Interno", value: `${fmtHours(minInterno / 60)}h`, pct: pct(minInterno, totalMin), color: "var(--blue)" },
+                        ].map(s => (
+                          <div key={s.label} className="rounded-lg p-3 text-center" style={{ background: "var(--bg-soft)", border: "1px solid var(--border)" }}>
+                            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--muted)" }}>{s.label}</div>
+                            <div style={{ fontFamily: "Montserrat", fontWeight: 800, fontSize: 22, color: s.color }}>{s.value}</div>
+                            <div className="text-[10px] mt-1" style={{ color: "var(--muted)" }}>{s.pct}% do total</div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Tabela */}
+                      <div className="mt-4">
+                        <table className="v4-table">
+                          <thead><tr><th>#</th><th>Workspace</th><th>Tipo</th><th>Executores</th><th style={{ textAlign: "right" }}>Horas</th></tr></thead>
+                          <tbody>
+                            {wsTotals.map((w, i) => (
+                              <tr key={w.nome}>
+                                <td><span style={{ fontFamily: "Montserrat", fontWeight: 700, color: i === 0 ? "var(--red)" : "var(--muted)" }}>{i + 1}</span></td>
+                                <td style={{ fontWeight: 600, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={w.nome}>{w.nome}</td>
+                                <td><span className={`ws-tag ${w.interno ? "interno" : "cliente"}`}>{w.interno ? "Interno" : "Cliente"}</span></td>
+                                <td style={{ color: "var(--muted)" }}>{w.execs}</td>
+                                <td className="num">{fmtH(w.min)}h</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── SCHEDULE ──────────────────────────────────────────────── */}
+              {activeTab === "schedule" && (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-5">
+                    {/* Bar por dia */}
+                    <div className="card">
+                      <p className="section-title mb-4">Horas por dia da semana <span className="section-tag">Ritmo semanal</span></p>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ReBarChart data={minPorDia} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                            <XAxis dataKey="dia" stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => v.slice(0, 3)} />
+                            <YAxis stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => `${(v / 60).toFixed(0)}h`} />
+                            <Tooltip {...tooltipStyle} formatter={(v: any) => [`${fmtH(v as number)}h`, "Horas"]} />
+                            <Bar dataKey="min" radius={[4, 4, 0, 0]} maxBarSize={42}>
+                              {minPorDia.map((d, i) => (
+                                <Cell key={i} fill={d.dia === "Sábado" || d.dia === "Domingo" ? "rgba(230,64,46,0.35)" : "var(--red)"} />
+                              ))}
+                            </Bar>
+                          </ReBarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                    {/* Line por hora */}
+                    <div className="card">
+                      <p className="section-title mb-4">Quando o time começa tarefas <span className="section-tag">Por hora</span></p>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ReLineChart data={horaLineData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                            <XAxis dataKey="hora" stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} />
+                            <YAxis stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} />
+                            <Tooltip {...tooltipStyle} formatter={(v: any) => [`${v} apontamentos`, ""]} />
+                            <Line type="monotone" dataKey="count" stroke="var(--red)" strokeWidth={2}
+                              dot={{ fill: "var(--red)", r: 3 }}
+                              activeDot={{ r: 5 }}
+                            />
+                          </ReLineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Heatmap */}
+                  <div className="card">
+                    <p className="section-title mb-4">Mapa de calor — horas por executor × dia da semana <span className="section-tag">Heatmap</span></p>
+                    <div className="heatmap-wrap">
+                      <div className="heatmap">
+                        {/* Header */}
+                        <div className="hcell rowlabel colhead" style={{ color: "var(--muted-2)" }}>Executor</div>
+                        {DIAS_ORDEM.map(d => (
+                          <div key={d} className="hcell colhead" style={{ color: "var(--muted-2)" }}>{d.slice(0, 3)}</div>
+                        ))}
+                        {/* Rows */}
+                        {execTotals.map(e => (
+                          <React.Fragment key={e.nome}>
+                            <div className="hcell rowlabel">{e.nome.split(" ")[0]}</div>
+                            {DIAS_ORDEM.map(d => {
+                              const v = heatData[e.nome]?.[d] || 0;
+                              return (
+                                <div key={d} className="heatcell" style={{ background: heatColor(v) }}>
+                                  {v > 0 ? `${fmtH(v)}h` : "—"}
+                                </div>
+                              );
+                            })}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── TASKS ─────────────────────────────────────────────────── */}
+              {activeTab === "tasks" && (
+                <div className="space-y-5">
+                  <div className="card">
+                    <div className="mb-4">
+                      <p className="section-title">Tipo de Tarefa <span className="section-tag">Onde o tempo é gasto</span></p>
+                      <p className="section-sub mt-1">Classificação das horas registradas por tipo de atividade</p>
+                    </div>
+                    <div style={{ height: Math.max(200, tipoTarefaData.length * 36) }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ReBarChart data={tipoTarefaData} layout="vertical" margin={{ top: 0, right: 10, left: 220, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+                          <XAxis type="number" stroke="var(--muted-2)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => `${(v / 60).toFixed(0)}h`} />
+                          <YAxis type="category" dataKey="tipo" stroke="var(--muted-2)" fontSize={11} tickLine={false} axisLine={false} width={220}
+                            tick={{ fill: "var(--muted)" }} tickFormatter={(v: string) => v.length > 36 ? v.slice(0, 34) + "…" : v} />
+                          <Tooltip {...tooltipStyle} formatter={(v: any, _, p: any) => [`${fmtH(v as number)}h · ${p.payload?.count || 0} apont.`, ""]} />
+                          <Bar dataKey="min" radius={[0, 4, 4, 0]} barSize={20}>
+                            {tipoTarefaData.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
+                          </Bar>
+                        </ReBarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    {/* Tabela de tipos */}
+                    <div className="mt-5">
+                      <table className="v4-table">
+                        <thead><tr><th>#</th><th>Tipo de Tarefa</th><th>Apontamentos</th><th style={{ textAlign: "right" }}>% do total</th><th style={{ textAlign: "right" }}>Horas</th></tr></thead>
+                        <tbody>
+                          {tipoTarefaData.map((t, i) => (
+                            <tr key={t.tipo}>
+                              <td><span style={{ fontFamily: "Montserrat", fontWeight: 700, color: i === 0 ? "var(--red)" : "var(--muted)" }}>{i + 1}</span></td>
+                              <td style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.tipo}>{t.tipo}</td>
+                              <td style={{ color: "var(--muted)" }}>{t.count}</td>
+                              <td className="num" style={{ color: "var(--muted)" }}>{pct(t.min, totalMin)}%</td>
+                              <td className="num">{fmtH(t.min)}h</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── INSIGHTS ──────────────────────────────────────────────── */}
+              {activeTab === "insights" && (
+                <div className="space-y-5">
+                  <div>
+                    <p className="section-title">Insights <span className="section-tag">Leitura analítica</span></p>
+                    <p className="section-sub mt-1">O que os números indicam sobre o período</p>
+                  </div>
+                  {insights.length === 0 ? (
+                    <div className="card text-center py-10" style={{ color: "var(--muted)" }}>
+                      Dados insuficientes para gerar insights. Carregue mais apontamentos.
+                    </div>
+                  ) : (
+                    <div className="insights-grid">
+                      {insights.map((ins, i) => (
+                        <div key={i} className={`insight-card ${ins.kind}`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="ibadge">{ins.tag}</span>
+                          </div>
+                          <p className="insight-title">{ins.title}</p>
+                          <p className="insight-text" dangerouslySetInnerHTML={{ __html: ins.text }} />
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* ─── LOG DE HORAS TAB ─── */}
-              {activeTab === "detailed" && (
-                <div className="space-y-3">
-                  {/* Search */}
+              {/* ─── LOG ───────────────────────────────────────────────────── */}
+              {activeTab === "log" && (
+                <div className="space-y-4">
                   <div className="flex items-center gap-3">
-                    <div className="relative flex-1 max-w-xs">
-                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--text-muted)" }} />
-                      <input
-                        type="text"
-                        placeholder="Buscar por tarefa, workspace..."
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        className="w-full rounded border text-[11px] pl-8 pr-3 py-1.5 text-white"
-                        style={{ background: "#050507", borderColor: "var(--border)" }}
-                      />
+                    <div className="relative max-w-xs flex-1">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
+                      <input type="text" placeholder="Buscar tarefa, workspace, executor..."
+                        value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                        className="w-full rounded border text-[11px] pl-8 pr-3 py-1.5"
+                        style={{ background: "var(--card)", borderColor: "var(--border)", color: "var(--off-white)" }} />
                     </div>
-                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                      {filteredLogs.length} apontamentos · {totalHours.toFixed(1)}h total
+                    <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+                      {filteredLogs.length} apontamentos · {fmtHours(totalHours)}h total
                     </p>
                   </div>
 
-                  <div className="premium-card rounded-md overflow-hidden">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                          {["ID", "Data", "Profissional", "Workspace", "Projeto", "Tarefa", "Horas"].map((h, i) => (
-                            <th key={i} className={`py-3 px-3 text-[9px] font-bold uppercase tracking-wider ${i === 6 ? "text-right" : "text-left"}`} style={{ color: "var(--text-muted)", background: "#03030a" }}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
+                  <div className="card" style={{ padding: 0 }}>
+                    <table className="v4-table">
+                      <thead><tr>
+                        <th style={{ padding: "12px 14px 10px" }}>ID</th>
+                        <th>Data</th>
+                        <th>Dia</th>
+                        <th>Executor</th>
+                        <th>Workspace</th>
+                        <th>Tipo</th>
+                        <th>Tarefa</th>
+                        <th style={{ textAlign: "right" }}>Horas</th>
+                      </tr></thead>
                       <tbody>
                         {paginatedLogs.length === 0 ? (
-                          <tr><td colSpan={7} className="py-10 text-center text-xs" style={{ color: "var(--text-muted)" }}>Nenhum apontamento encontrado.</td></tr>
-                        ) : (
-                          paginatedLogs.map(log => (
-                            <tr key={log.id} className="table-row-hover border-b" style={{ borderColor: "var(--border-subtle)" }}>
-                              <td className="py-2.5 px-3 text-[9px] mono-nums" style={{ color: "var(--text-muted)" }}>#{log.id}</td>
-                              <td className="py-2.5 px-3 text-[10px] mono-nums" style={{ color: "var(--text-muted)" }}>
-                                {new Date(log.date).toLocaleDateString("pt-BR")}
-                              </td>
-                              <td className="py-2.5 px-3 text-[10px] max-w-[120px] truncate" style={{ color: "#a1a1aa" }} title={log.professional}>{log.professional}</td>
-                              <td className="py-2.5 px-3">
-                                <span className="text-[10px] font-semibold" style={{ color: "#f87171" }}>{log.workspace}</span>
-                              </td>
-                              <td className="py-2.5 px-3">
-                                <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium max-w-[120px] truncate block" title={log.project}>{log.project}</span>
-                              </td>
-                              <td className="py-2.5 px-3 text-[10px] max-w-[200px] truncate" style={{ color: "#e4e4e7" }} title={log.task}>{log.task}</td>
-                              <td className="py-2.5 px-3 text-right text-[11px] font-bold text-white mono-nums">{log.hours.toFixed(1)}h</td>
-                            </tr>
-                          ))
-                        )}
+                          <tr><td colSpan={8} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>Nenhum apontamento encontrado.</td></tr>
+                        ) : paginatedLogs.map(log => (
+                          <tr key={log.id}>
+                            <td style={{ color: "var(--muted-2)", fontSize: 10, paddingLeft: 14 }}>#{log.id}</td>
+                            <td style={{ color: "var(--muted)", fontFamily: "Montserrat", fontSize: 11 }}>
+                              {log.date ? new Date(log.date + "T12:00:00").toLocaleDateString("pt-BR") : "—"}
+                            </td>
+                            <td style={{ color: "var(--muted)", fontSize: 11 }}>{log.diaSemana || "—"}</td>
+                            <td style={{ fontWeight: 600, fontSize: 12 }}>{log.executor || log.professional}</td>
+                            <td>
+                              <span style={{ fontWeight: 600, color: "var(--foreground)", fontSize: 11 }}>{log.workspace}</span>
+                              {" "}<span className={`ws-tag ${log.interno ? "interno" : "cliente"}`}>{log.interno ? "int" : "cli"}</span>
+                            </td>
+                            <td style={{ maxWidth: 120 }}>
+                              <span className="ws-tag cliente" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 110, display: "inline-block" }} title={log.project}>{log.project}</span>
+                            </td>
+                            <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--foreground)", fontSize: 11 }} title={log.task}>{log.task}</td>
+                            <td className="num" style={{ color: "var(--off-white)", fontSize: 12, paddingRight: 14 }}>{log.hours.toFixed(1)}h</td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
-
-                    {/* Pagination */}
+                    {/* Paginação */}
                     {totalPages > 1 && (
-                      <div className="px-4 py-3 flex items-center justify-between border-t" style={{ borderColor: "var(--border)" }}>
-                        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                      <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: "var(--line)" }}>
+                        <span className="text-[10px]" style={{ color: "var(--muted)" }}>
                           {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredLogs.length)} de {filteredLogs.length}
                         </span>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                            className="p-1 rounded border transition-colors disabled:opacity-25"
-                            style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text-muted)" }}
-                          >
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
+                            className="p-1 rounded border disabled:opacity-25" style={{ borderColor: "var(--border)", background: "transparent", color: "var(--muted)" }}>
                             <ChevronLeft className="w-3.5 h-3.5" />
                           </button>
-                          <span className="text-[10px] px-2" style={{ color: "var(--text-muted)" }}>{currentPage}/{totalPages}</span>
-                          <button
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                            className="p-1 rounded border transition-colors disabled:opacity-25"
-                            style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text-muted)" }}
-                          >
+                          <span className="text-[10px] px-2" style={{ color: "var(--muted)" }}>{currentPage}/{totalPages}</span>
+                          <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}
+                            className="p-1 rounded border disabled:opacity-25" style={{ borderColor: "var(--border)", background: "transparent", color: "var(--muted)" }}>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </div>

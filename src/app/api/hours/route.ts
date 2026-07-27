@@ -20,15 +20,18 @@ export async function GET(request: Request) {
       }, { status: 400 });
     }
 
-    // 1. Busca a lista de usuários em paralelo para mapear executorId -> email
+    // 1. Busca a lista de usuários em paralelo para mapear executorId -> email e nome
     const usersRes = await fetch(`${apiUrl}/v1.0/users?apiKey=${apiToken}&companyId=${companyId}`);
-    const usersMap = new Map<string, string>();
+    const usersEmailMap = new Map<string, string>(); // id -> email
+    const usersNameMap  = new Map<string, string>(); // id -> name
     if (usersRes.ok) {
       const usersJson = await usersRes.json();
       if (usersJson.data && Array.isArray(usersJson.data)) {
         usersJson.data.forEach((u: any) => {
-          if (u.id && u.email) {
-            usersMap.set(u.id, u.email);
+          if (u.id) {
+            if (u.email) usersEmailMap.set(u.id, u.email);
+            const name = u.name || u.displayName || u.email || "Desconhecido";
+            usersNameMap.set(u.id, name);
           }
         });
       }
@@ -78,17 +81,52 @@ export async function GET(request: Request) {
 
     const list = resJson.data || [];
 
+    // Mapeamento de índice -> nome do dia em pt-BR
+    const DIAS: Record<number, string> = {
+      0: "Domingo", 1: "Segunda", 2: "Terça", 3: "Quarta",
+      4: "Quinta", 5: "Sexta", 6: "Sábado"
+    };
+
     // Mapeia o payload da API REST do eKyte para o formato esperado pelo Frontend
     let rawData = list.map((item: any) => {
-      const matchedEmail = usersMap.get(item.executorId) || "Desconhecido";
+      const email = usersEmailMap.get(item.executorId) || "Desconhecido";
+      const name  = usersNameMap.get(item.executorId)  || email;
+
+      // Campos de data/hora derivados
+      const dateStr = item.startDate ? item.startDate.split("T")[0] : "";
+      let diaSemanaIdx = -1;
+      let diaSemana = "—";
+      let horaInicio = -1;
+
+      if (item.startDate) {
+        const d = new Date(item.startDate);
+        diaSemanaIdx = d.getDay(); // 0=Dom, 1=Seg,...
+        diaSemana = DIAS[diaSemanaIdx] ?? "—";
+        horaInicio = d.getHours();
+      } else if (dateStr) {
+        const d = new Date(dateStr + "T12:00:00"); // noon fallback
+        diaSemanaIdx = d.getDay();
+        diaSemana = DIAS[diaSemanaIdx] ?? "—";
+      }
+
+      // Detecta workspace interno pelo nome
+      const workspaceName = item.workspace || "Geral";
+      const interno = /INTERNO/i.test(workspaceName);
+
       return {
         id: String(item.id),
-        date: item.startDate ? item.startDate.split("T")[0] : "",
+        date: dateStr,
         task: item.ctcTask || item.comment || "Atividade Operacional",
-        professional: matchedEmail, // Mapeado dinamicamente para o e-mail cadastrado
+        professional: email,       // e-mail para filtros
+        executor: name,            // nome amigável para exibição
         hours: (item.effort || 0) / 60,
-        workspace: item.workspace || "Geral",
-        project: item.ctcTaskType || "Outros"
+        workspace: workspaceName,
+        project: item.ctcTaskType || "Outros",
+        // Campos derivados para os gráficos V4
+        diaSemana,
+        diaSemanaIdx,
+        horaInicio,
+        interno,
       };
     });
 
