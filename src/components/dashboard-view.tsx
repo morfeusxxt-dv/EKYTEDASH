@@ -19,8 +19,6 @@ import {
   Calendar,
   Layers,
   Clock,
-  TrendingUp,
-  DollarSign,
   Briefcase,
   Search,
   ChevronLeft,
@@ -38,7 +36,6 @@ interface HourLog {
   hours: number;
   workspace: string;
   project: string;
-  costPerHour: number;
 }
 
 const INVESTORS_MAPPING = [
@@ -150,34 +147,33 @@ export function DashboardView() {
     return filteredLogs.reduce((acc, curr) => acc + curr.hours, 0);
   }, [filteredLogs]);
 
-  const totalInvestment = useMemo(() => {
-    return filteredLogs.reduce((acc, curr) => acc + curr.hours * curr.costPerHour, 0);
+  const activeWorkspacesCount = useMemo(() => {
+    const list = new Set(filteredLogs.map(l => l.workspace));
+    return list.size;
   }, [filteredLogs]);
 
-  const avgCostPerHour = useMemo(() => {
-    if (totalHours === 0) return 0;
-    return totalInvestment / totalHours;
-  }, [totalHours, totalInvestment]);
+  const activeProjectsCount = useMemo(() => {
+    const list = new Set(filteredLogs.map(l => l.project));
+    return list.size;
+  }, [filteredLogs]);
 
   // Stable variation mockup
   const simulatedVariation = useMemo(() => {
     const base = selectedInvestor === "all" ? 12.5 : selectedInvestor.length * 2.5;
     return {
       hours: `${base > 15 ? "+" : "-"}${(base % 7).toFixed(1)}%`,
-      cost: `${base > 15 ? "+" : "-"}${(base % 5).toFixed(1)}%`,
       isNegative: base <= 15,
     };
   }, [selectedInvestor]);
 
   // Hours per Workspace
   const workspaceChartData = useMemo(() => {
-    const dataMap: Record<string, { name: string; horas: number; custo: number }> = {};
+    const dataMap: Record<string, { name: string; horas: number }> = {};
     filteredLogs.forEach((log) => {
       if (!dataMap[log.workspace]) {
-        dataMap[log.workspace] = { name: log.workspace, horas: 0, custo: 0 };
+        dataMap[log.workspace] = { name: log.workspace, horas: 0 };
       }
       dataMap[log.workspace].horas += log.hours;
-      dataMap[log.workspace].custo += log.hours * log.costPerHour;
     });
     return Object.values(dataMap);
   }, [filteredLogs]);
@@ -228,7 +224,7 @@ export function DashboardView() {
 
   return (
     <div className="flex min-h-screen bg-black text-[#f4f4f5]">
-      {/* Sidebar - Flat, solid black/zinc */}
+      {/* Sidebar */}
       <aside className="w-56 shrink-0 bg-[#09090b] border-r border-zinc-900 flex flex-col justify-between p-4 z-20">
         <div>
           {/* Logo */}
@@ -291,7 +287,7 @@ export function DashboardView() {
 
       {/* Main Panel */}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Header - Flat border, minimal selectors */}
+        {/* Header */}
         <header className="h-16 bg-black border-b border-zinc-900 flex items-center justify-between px-6 sticky top-0 z-10">
           <div className="flex items-center gap-4">
             <h1 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
@@ -338,7 +334,7 @@ export function DashboardView() {
                   onChange={(e) => setCustomStartDate(e.target.value)}
                   className="bg-transparent text-white border-0 w-24 text-[10px]"
                 />
-                <span className="text-zinc-600">-</span>
+                <span className="text-zinc-650">-</span>
                 <input
                   type="date"
                   value={customEndDate}
@@ -423,32 +419,25 @@ export function DashboardView() {
                 </div>
               </div>
 
-              {/* Investment Card */}
+              {/* Workspaces Card */}
               <div className="premium-card p-5 rounded">
                 <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  <span>Investimento Estimado</span>
-                  <DollarSign className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>Workspaces Ativos</span>
+                  <Layers className="w-3.5 h-3.5 text-zinc-500" />
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">
-                    {totalInvestment.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                  </span>
-                  <span className={`text-[10px] font-bold ${simulatedVariation.isNegative ? "text-green-500" : "text-red-500"} mono-nums`}>
-                    {simulatedVariation.cost}
-                  </span>
+                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">{activeWorkspacesCount}</span>
                 </div>
               </div>
 
-              {/* Hourly Rate Card */}
+              {/* Projects Card */}
               <div className="premium-card p-5 rounded">
                 <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  <span>Custo Médio da Hora</span>
-                  <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>Projetos em Andamento</span>
+                  <Briefcase className="w-3.5 h-3.5 text-zinc-500" />
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">
-                    {avgCostPerHour.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                  </span>
+                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">{activeProjectsCount}</span>
                 </div>
               </div>
             </section>
@@ -547,13 +536,12 @@ export function DashboardView() {
                           <th className="py-3 px-4">Tarefa</th>
                           <th className="py-3 px-4">Profissional</th>
                           <th className="py-3 px-4 text-right">Horas</th>
-                          <th className="py-3 px-4 text-right">Investimento</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-900/50 text-[11px]">
                         {paginatedLogs.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="py-8 text-center text-zinc-600">Nenhum apontamento.</td>
+                            <td colSpan={6} className="py-8 text-center text-zinc-600">Nenhum apontamento.</td>
                           </tr>
                         ) : (
                           paginatedLogs.map((log) => (
@@ -570,9 +558,6 @@ export function DashboardView() {
                               <td className="py-2.5 px-4 text-zinc-300 max-w-xs truncate">{log.task}</td>
                               <td className="py-2.5 px-4 text-zinc-400">{log.professional}</td>
                               <td className="py-2.5 px-4 text-right font-bold text-white mono-nums">{log.hours.toFixed(1)}h</td>
-                              <td className="py-2.5 px-4 text-right font-semibold text-green-500 mono-nums">
-                                {(log.hours * log.costPerHour).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                              </td>
                             </tr>
                           ))
                         )}
@@ -638,15 +623,13 @@ export function DashboardView() {
                         <th className="py-3 px-4">Projeto</th>
                         <th className="py-3 px-4">Atividade</th>
                         <th className="py-3 px-4">Colaborador</th>
-                        <th className="py-3 px-4 text-right">Taxa/Hora</th>
                         <th className="py-3 px-4 text-right">Horas</th>
-                        <th className="py-3 px-4 text-right">Total</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-900/50 text-[11px]">
                       {paginatedLogs.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="py-8 text-center text-zinc-600">Nenhum apontamento.</td>
+                          <td colSpan={7} className="py-8 text-center text-zinc-600">Nenhum apontamento.</td>
                         </tr>
                       ) : (
                         paginatedLogs.map((log) => (
@@ -659,13 +642,7 @@ export function DashboardView() {
                             <td className="py-2.5 px-4 text-zinc-400 font-semibold">{log.project}</td>
                             <td className="py-2.5 px-4 text-zinc-350 max-w-sm truncate">{log.task}</td>
                             <td className="py-2.5 px-4 text-zinc-400">{log.professional}</td>
-                            <td className="py-2.5 px-4 text-right text-zinc-500 mono-nums">
-                              {log.costPerHour.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                            </td>
                             <td className="py-2.5 px-4 text-right text-white font-bold mono-nums">{log.hours.toFixed(1)}h</td>
-                            <td className="py-2.5 px-4 text-right font-bold text-green-500 mono-nums">
-                              {(log.hours * log.costPerHour).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                            </td>
                           </tr>
                         ))
                       )}
