@@ -9,21 +9,17 @@ async function test() {
         jsonrpc: "2.0",
         method: "tools/call",
         params: {
-          name: "list_time_trackings",
-          arguments: {
-            startDate: "2026-07-01",
-            endDate: "2026-07-31"
-          }
+          name: "list_all_users_with_profile",
+          arguments: {}
         },
         id: 1
       })
     });
     console.log("Status:", res.status);
     const json = await res.json();
-    console.log("JSON response keys:", Object.keys(json));
     if (json.result && json.result.content) {
       const content = json.result.content[0].text;
-      console.log("Content snippet:", content.slice(0, 2000));
+      console.log("Content snippet:", content.slice(0, 1000));
     } else {
       console.log("Response:", JSON.stringify(json, null, 2));
     }

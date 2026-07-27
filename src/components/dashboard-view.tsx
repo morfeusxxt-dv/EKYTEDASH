@@ -51,6 +51,9 @@ export function DashboardView() {
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
+  // Lista de todos os usuários cadastrados na empresa (carregados do eKyte MCP)
+  const [allUsers, setAllUsers] = useState<{ email: string; name: string }[]>([]);
+
   // Dados carregados do Backend (Proxy API)
   const [logs, setLogs] = useState<HourLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -59,6 +62,22 @@ export function DashboardView() {
   // Paginação
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 8;
+
+  // Carrega a lista completa de profissionais/investidores da empresa
+  useEffect(() => {
+    async function loadUsers() {
+      try {
+        const response = await fetch("/api/users");
+        if (response.ok) {
+          const resJson = await response.json();
+          setAllUsers(resJson.data || []);
+        }
+      } catch (err) {
+        console.error("Erro ao carregar usuários do eKyte", err);
+      }
+    }
+    loadUsers();
+  }, []);
 
   // Carrega os dados fazendo a requisição à API Route proxy (carrega todas as horas do período)
   useEffect(() => {
@@ -115,17 +134,6 @@ export function DashboardView() {
     }
     fetchData();
   }, [user, period, selectedProject, customStartDate, customEndDate]);
-
-  // Lista dinâmica de Investidores / Profissionais extraídos dinamicamente dos logs reais do eKyte
-  const investorsList = useMemo(() => {
-    const set = new Set<string>();
-    logs.forEach((log) => {
-      if (log.professional) {
-        set.add(log.professional);
-      }
-    });
-    return Array.from(set).sort();
-  }, [logs]);
 
   // Filtros aplicados no cliente
   const filteredLogs = useMemo(() => {
@@ -239,7 +247,7 @@ export function DashboardView() {
               <span className="text-white font-extrabold text-xs tracking-tighter">eK</span>
             </div>
             <span className="text-xs font-bold tracking-tight text-white uppercase">
-              Ekyte <span className="text-zinc-650 font-medium">Dash</span>
+              Ekyte <span className="text-zinc-655 font-medium">Dash</span>
             </span>
           </div>
 
@@ -350,7 +358,7 @@ export function DashboardView() {
               </div>
             )}
 
-            {/* Selector: Investidor / Profissional DInâmico */}
+            {/* Selector: Investidor / Profissional Dinâmico */}
             <div className="relative">
               <User className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
               <select
@@ -359,9 +367,9 @@ export function DashboardView() {
                 className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-red-500 font-bold appearance-none cursor-pointer"
               >
                 <option value="all">Todos os Investidores</option>
-                {investorsList.map((email) => (
-                  <option key={email} value={email}>
-                    {email}
+                {allUsers.map((u) => (
+                  <option key={u.email} value={u.email}>
+                    {u.name} ({u.email})
                   </option>
                 ))}
               </select>
