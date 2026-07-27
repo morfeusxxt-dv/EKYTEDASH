@@ -42,18 +42,24 @@ export async function GET(request: Request) {
 
     const tfhubApiToken = process.env.TFHUB_API_TOKEN;
 
-    // 1.5 Busca os clientes/resumo da API do TFHub para enriquecer squad e investidor
+    // 1.5 Busca os clientes/resumo e investidores da API do TFHub para enriquecer squad e investidor
     const clientesSquadMap = new Map<string, string>(); // nome -> squad_nome
     const clientesInvestidorMap = new Map<string, string>(); // nome -> investidor_nome
     const clientesFeeMap = new Map<string, number>(); // nome -> fee
+    const usersSquadMap = new Map<string, string>(); // email -> squad_nome
+    
     try {
       const headers: Record<string, string> = {};
       if (tfhubApiToken) {
         headers["Authorization"] = `Bearer ${tfhubApiToken}`;
       }
       
-      const clientesRes = await fetch(`${tfhubApiUrl}/api/clientes/resumo`, { headers });
-      if (clientesRes.ok) {
+      const [clientesRes, investidoresRes] = await Promise.all([
+        fetch(`${tfhubApiUrl}/api/clientes/resumo`, { headers }).catch(() => null),
+        fetch(`${tfhubApiUrl}/api/investidores`, { headers }).catch(() => null)
+      ]);
+      
+      if (clientesRes && clientesRes.ok) {
         const clientesJson = await clientesRes.json();
         if (Array.isArray(clientesJson)) {
           clientesJson.forEach((c: any) => {
@@ -65,8 +71,16 @@ export async function GET(request: Request) {
             }
           });
         }
-      } else {
-        console.warn("TFHub API falhou ao retornar clientes:", clientesRes.status);
+      }
+      
+      if (investidoresRes && investidoresRes.ok) {
+        const investidoresJson = await investidoresRes.json();
+        const investidores = investidoresJson.data || (Array.isArray(investidoresJson) ? investidoresJson : []);
+        investidores.forEach((i: any) => {
+          if (i.email && i.squad && i.squad.nome) {
+            usersSquadMap.set(i.email.toLowerCase(), i.squad.nome);
+          }
+        });
       }
     } catch (e) {
       console.warn("Erro ao chamar TFHub API:", e);
@@ -149,6 +163,7 @@ export async function GET(request: Request) {
     let rawData = list.map((item: any) => {
       const email = usersEmailMap.get(item.executorId) || "Desconhecido";
       const name  = usersNameMap.get(item.executorId)  || email;
+      const executorSquad = usersSquadMap.get(email.toLowerCase()) || "Sem Squad";
 
       // Detecta workspace interno pelo nome
       const workspaceName = item.workspace || "Geral";
@@ -216,6 +231,7 @@ export async function GET(request: Request) {
         task: item.ctcTask || item.comment || "Atividade Operacional",
         professional: email,       // e-mail para filtros
         executor: name,            // nome amigável para exibição
+        executor_squad: executorSquad, // squad do executor
         hours: (item.effort || 0) / 60,
         workspace: workspaceName,
         project: item.ctcTaskType || "Outros",

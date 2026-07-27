@@ -19,6 +19,7 @@ interface HourLog {
   task: string;
   professional: string; // email
   executor: string;     // nome amigável
+  executor_squad: string;
   hours: number;
   workspace: string;
   project: string;
@@ -152,11 +153,9 @@ export function DashboardView() {
     }
 
     if (selectedSquad !== "all") {
-      // Descobre quais executores trabalharam em clientes desse Squad
-      const squadExecutors = new Set(result.filter(l => l.squad === selectedSquad).map(l => l.executor));
-      
-      // Mantém os apontamentos do Squad + os apontamentos internos DESSES executores
-      result = result.filter(l => l.squad === selectedSquad || (l.interno && squadExecutors.has(l.executor)));
+      // Mantém os apontamentos onde o cliente (workspace) pertence ao Squad, 
+      // ou onde o próprio executor pertence ao Squad.
+      result = result.filter(l => l.squad === selectedSquad || l.executor_squad === selectedSquad);
     }
 
     return result;
@@ -165,7 +164,14 @@ export function DashboardView() {
   // ── Listas dinâmicas
   const workspacesList = useMemo(() => [...new Set(logs.map(l => l.workspace))].sort(), [logs]);
   const projectsList   = useMemo(() => [...new Set(logs.map(l => l.project))].sort(), [logs]);
-  const squadsList     = useMemo(() => [...new Set(logs.map(l => l.squad || "Sem Squad"))].sort(), [logs]);
+  const squadsList     = useMemo(() => {
+    const s = new Set<string>();
+    logs.forEach(l => {
+      s.add(l.squad || "Sem Squad");
+      if (l.executor_squad && l.executor_squad !== "Sem Squad") s.add(l.executor_squad);
+    });
+    return [...s].sort();
+  }, [logs]);
   const investidoresList = useMemo(() => [...new Set(logs.map(l => l.investidor || "Sem Investidor"))].sort(), [logs]);
 
   // ── KPIs
