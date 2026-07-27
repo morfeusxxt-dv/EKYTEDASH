@@ -20,10 +20,13 @@ export async function GET(request: Request) {
       }, { status: 400 });
     }
 
+    const tfhubApiUrl = process.env.TFHUB_API_URL || "http://localhost:8000";
+
     // 1. Busca a lista de usuários em paralelo para mapear executorId -> email e nome
     const usersRes = await fetch(`${apiUrl}/v1.0/users?apiKey=${apiToken}&companyId=${companyId}`);
     const usersEmailMap = new Map<string, string>(); // id -> email
     const usersNameMap  = new Map<string, string>(); // id -> name
+    const usersSquadMap = new Map<string, string>(); // id -> squad
     if (usersRes.ok) {
       const usersJson = await usersRes.json();
       if (usersJson.data && Array.isArray(usersJson.data)) {
@@ -35,6 +38,28 @@ export async function GET(request: Request) {
           }
         });
       }
+    }
+
+    // 1.5 Busca os clientes/resumo da API do TFHub para enriquecer squad e investidor
+    const clientesSquadMap = new Map<string, string>(); // nome -> squad_nome
+    const clientesInvestidorMap = new Map<string, string>(); // nome -> investidor_nome
+    try {
+      const clientesRes = await fetch(`${tfhubApiUrl}/api/clientes/resumo`);
+      if (clientesRes.ok) {
+        const clientesJson = await clientesRes.json();
+        if (Array.isArray(clientesJson)) {
+          clientesJson.forEach((c: any) => {
+            if (c.nome) {
+              if (c.squad_nome) clientesSquadMap.set(c.nome.toLowerCase(), c.squad_nome);
+              if (c.investidor_nome) clientesInvestidorMap.set(c.nome.toLowerCase(), c.investidor_nome);
+            }
+          });
+        }
+      } else {
+        console.warn("TFHub API falhou ao retornar clientes:", clientesRes.status);
+      }
+    } catch (e) {
+      console.warn("Erro ao chamar TFHub API:", e);
     }
 
     // 2. Prepara a URL com query params da API REST do eKyte v1.0
@@ -92,6 +117,14 @@ export async function GET(request: Request) {
       const email = usersEmailMap.get(item.executorId) || "Desconhecido";
       const name  = usersNameMap.get(item.executorId)  || email;
 
+      // Detecta workspace interno pelo nome
+      const workspaceName = item.workspace || "Geral";
+      const interno = /INTERNO/i.test(workspaceName);
+      
+      const wsLower = workspaceName.toLowerCase();
+      const squad = clientesSquadMap.get(wsLower) || "Sem Squad";
+      const investidor = clientesInvestidorMap.get(wsLower) || "Sem Investidor";
+
       // Campos de data/hora derivados
       const dateStr = item.startDate ? item.startDate.split("T")[0] : "";
       let diaSemanaIdx = -1;
@@ -109,9 +142,6 @@ export async function GET(request: Request) {
         diaSemana = DIAS[diaSemanaIdx] ?? "—";
       }
 
-      // Detecta workspace interno pelo nome
-      const workspaceName = item.workspace || "Geral";
-      const interno = /INTERNO/i.test(workspaceName);
 
       return {
         id: String(item.id),
@@ -122,6 +152,8 @@ export async function GET(request: Request) {
         hours: (item.effort || 0) / 60,
         workspace: workspaceName,
         project: item.ctcTaskType || "Outros",
+        squad,
+        investidor,
         // Campos derivados para os gráficos V4
         diaSemana,
         diaSemanaIdx,

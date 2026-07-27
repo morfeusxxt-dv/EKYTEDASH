@@ -22,6 +22,8 @@ interface HourLog {
   hours: number;
   workspace: string;
   project: string;
+  squad: string;
+  investidor: string;
   diaSemana: string;
   diaSemanaIdx: number;
   horaInicio: number;
@@ -60,6 +62,8 @@ export function DashboardView() {
   const [period, setPeriod] = useState<"current-month" | "last-30" | "custom">("current-month");
   const [selectedInvestor, setSelectedInvestor] = useState<string>("all");
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("all");
+  const [selectedSquad, setSelectedSquad] = useState<string>("all");
+  const [selectedInvestidor, setSelectedInvestidor] = useState<string>("all");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -120,13 +124,17 @@ export function DashboardView() {
   // ── Filtros locais
   const filteredLogs = useMemo(() => logs.filter(l =>
     (selectedWorkspace === "all" || l.workspace === selectedWorkspace) &&
-    (searchQuery === "" || [l.task, l.workspace, l.executor, l.project]
-      .some(f => f.toLowerCase().includes(searchQuery.toLowerCase())))
-  ), [logs, selectedWorkspace, searchQuery]);
+    (selectedSquad === "all" || l.squad === selectedSquad) &&
+    (selectedInvestidor === "all" || l.investidor === selectedInvestidor) &&
+    (searchQuery === "" || [l.task, l.workspace, l.executor, l.project, l.squad, l.investidor]
+      .some(f => f?.toLowerCase().includes(searchQuery.toLowerCase())))
+  ), [logs, selectedWorkspace, selectedSquad, selectedInvestidor, searchQuery]);
 
   // ── Listas dinâmicas
   const workspacesList = useMemo(() => [...new Set(logs.map(l => l.workspace))].sort(), [logs]);
   const projectsList   = useMemo(() => [...new Set(logs.map(l => l.project))].sort(), [logs]);
+  const squadsList     = useMemo(() => [...new Set(logs.map(l => l.squad || "Sem Squad"))].sort(), [logs]);
+  const investidoresList = useMemo(() => [...new Set(logs.map(l => l.investidor || "Sem Investidor"))].sort(), [logs]);
 
   // ── KPIs
   const totalMin        = useMemo(() => filteredLogs.reduce((a, c) => a + c.hours * 60, 0), [filteredLogs]);
@@ -284,7 +292,7 @@ export function DashboardView() {
   // ── Paginação log
   const totalPages   = Math.ceil(filteredLogs.length / itemsPerPage);
   const paginatedLogs = useMemo(() => filteredLogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredLogs, currentPage]);
-  useEffect(() => { setCurrentPage(1); }, [selectedInvestor, selectedWorkspace, period, searchQuery]);
+  useEffect(() => { setCurrentPage(1); }, [selectedInvestor, selectedWorkspace, selectedSquad, selectedInvestidor, period, searchQuery]);
 
   // ─── NAV ITEMS ─────────────────────────────────────────────────────────────
   const navItems: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -367,8 +375,8 @@ export function DashboardView() {
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
 
         {/* ── TOPBAR ── */}
-        <header className="h-14 flex items-center justify-between px-5 shrink-0 border-b" style={{ background: "var(--background)", borderColor: "var(--border)" }}>
-          <div className="flex items-center gap-3">
+        <header className="min-h-14 flex items-center justify-between px-5 py-2 shrink-0 border-b flex-wrap gap-2" style={{ background: "var(--background)", borderColor: "var(--border)" }}>
+          <div className="flex items-center gap-3 flex-wrap">
             <div className="flex rounded overflow-hidden border text-[10px]" style={{ borderColor: "var(--border)" }}>
               {(["current-month", "last-30", "custom"] as const).map((p, i) => (
                 <button key={p} onClick={() => setPeriod(p)} className="px-3 py-1.5 font-semibold transition-colors" style={{
@@ -389,7 +397,7 @@ export function DashboardView() {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Profissional */}
             <div className="relative flex items-center">
               <User className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--muted)" }} />
@@ -409,6 +417,28 @@ export function DashboardView() {
                 style={{ background: "var(--sidebar-bg)", borderColor: "var(--border)", color: selectedWorkspace !== "all" ? "var(--off-white)" : "var(--muted)" }}>
                 <option value="all">Todos os Workspaces</option>
                 {workspacesList.map(w => <option key={w} value={w}>{w}</option>)}
+              </select>
+              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--muted)" }} />
+            </div>
+            {/* Squad */}
+            <div className="relative flex items-center">
+              <Users className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--muted)" }} />
+              <select value={selectedSquad} onChange={e => setSelectedSquad(e.target.value)}
+                className="pl-6 pr-6 py-1.5 rounded border text-[10px] font-medium appearance-none cursor-pointer"
+                style={{ background: "var(--sidebar-bg)", borderColor: "var(--border)", color: selectedSquad !== "all" ? "var(--off-white)" : "var(--muted)" }}>
+                <option value="all">Todos os Squads</option>
+                {squadsList.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--muted)" }} />
+            </div>
+            {/* Investidor Responsável */}
+            <div className="relative flex items-center">
+              <Briefcase className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--muted)" }} />
+              <select value={selectedInvestidor} onChange={e => setSelectedInvestidor(e.target.value)}
+                className="pl-6 pr-6 py-1.5 rounded border text-[10px] font-medium appearance-none cursor-pointer"
+                style={{ background: "var(--sidebar-bg)", borderColor: "var(--border)", color: selectedInvestidor !== "all" ? "var(--off-white)" : "var(--muted)" }}>
+                <option value="all">Todos Investidores</option>
+                {investidoresList.map(i => <option key={i} value={i}>{i}</option>)}
               </select>
               <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--muted)" }} />
             </div>
@@ -808,13 +838,15 @@ export function DashboardView() {
                         <th>Dia</th>
                         <th>Executor</th>
                         <th>Workspace</th>
+                        <th>Squad</th>
+                        <th>Investidor</th>
                         <th>Tipo</th>
                         <th>Tarefa</th>
                         <th style={{ textAlign: "right" }}>Horas</th>
                       </tr></thead>
                       <tbody>
                         {paginatedLogs.length === 0 ? (
-                          <tr><td colSpan={8} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>Nenhum apontamento encontrado.</td></tr>
+                          <tr><td colSpan={10} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>Nenhum apontamento encontrado.</td></tr>
                         ) : paginatedLogs.map(log => (
                           <tr key={log.id}>
                             <td style={{ color: "var(--muted-2)", fontSize: 10, paddingLeft: 14 }}>#{log.id}</td>
@@ -827,6 +859,12 @@ export function DashboardView() {
                               <span style={{ fontWeight: 600, color: "var(--foreground)", fontSize: 11 }}>{log.workspace}</span>
                               {" "}<span className={`ws-tag ${log.interno ? "interno" : "cliente"}`}>{log.interno ? "int" : "cli"}</span>
                             </td>
+                            <td>
+                              <span className="ws-tag cliente" style={{ background: "rgba(155, 89, 182, 0.15)", color: "#9b59b6", border: "1px solid rgba(155, 89, 182, 0.3)" }}>
+                                {log.squad || "Sem Squad"}
+                              </span>
+                            </td>
+                            <td style={{ color: "var(--muted)", fontSize: 11 }}>{log.investidor || "Sem Investidor"}</td>
                             <td style={{ maxWidth: 120 }}>
                               <span className="ws-tag cliente" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 110, display: "inline-block" }} title={log.project}>{log.project}</span>
                             </td>
