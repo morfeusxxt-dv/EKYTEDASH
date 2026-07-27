@@ -12,7 +12,10 @@ import {
   ResponsiveContainer,
   LineChart as ReLineChart,
   Line,
-  Legend,
+  PieChart,
+  Pie,
+  Cell,
+  Treemap,
 } from "recharts";
 import {
   LogOut,
@@ -26,6 +29,14 @@ import {
   BarChart3,
   FileText,
   User,
+  TrendingUp,
+  AlertCircle,
+  CheckCircle2,
+  Activity,
+  ChevronDown,
+  Users,
+  Timer,
+  FolderKanban,
 } from "lucide-react";
 
 interface HourLog {
@@ -38,32 +49,43 @@ interface HourLog {
   project: string;
 }
 
+interface UserInfo {
+  id: string;
+  email: string;
+  name: string;
+}
+
+const PIE_COLORS = ["#dc2626", "#b91c1c", "#ef4444", "#f87171", "#fca5a5", "#991b1b", "#7f1d1d", "#450a0a"];
+
+function formatHours(h: number): string {
+  if (h >= 1000) return `${(h / 1000).toFixed(1)}k`;
+  return `${h.toFixed(1)}`;
+}
+
 export function DashboardView() {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<"overview" | "detailed">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "workspaces" | "detailed">("overview");
 
-  // Filtros principais
+  // Filtros
   const [period, setPeriod] = useState<"current-month" | "last-30" | "custom">("current-month");
-  const [selectedInvestor, setSelectedInvestor] = useState<string>("all"); // Default: Todos
+  const [selectedInvestor, setSelectedInvestor] = useState<string>("all");
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("all");
   const [selectedProject, setSelectedProject] = useState<string>("all");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Lista de todos os usuários cadastrados na empresa (carregados do eKyte MCP com ID)
-  const [allUsers, setAllUsers] = useState<{ id: string; email: string; name: string }[]>([]);
-
-  // Dados carregados do Backend (Proxy API)
+  // Dados
+  const [allUsers, setAllUsers] = useState<UserInfo[]>([]);
   const [logs, setLogs] = useState<HourLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   // Paginação
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const itemsPerPage = 8;
+  const itemsPerPage = 12;
 
-  // Carrega a lista completa de profissionais/investidores da empresa
+  // Carrega usuários do eKyte
   useEffect(() => {
     async function loadUsers() {
       try {
@@ -73,13 +95,13 @@ export function DashboardView() {
           setAllUsers(resJson.data || []);
         }
       } catch (err) {
-        console.error("Erro ao carregar usuários do eKyte", err);
+        console.error("Erro ao carregar usuários", err);
       }
     }
     loadUsers();
   }, []);
 
-  // Carrega os dados fazendo a requisição à API Route proxy (carrega todas as horas do período)
+  // Carrega apontamentos
   useEffect(() => {
     async function fetchData() {
       if (!user) return;
@@ -87,21 +109,15 @@ export function DashboardView() {
       setError(null);
       try {
         const queryParams = new URLSearchParams();
-        // Carrega todos os workspaces associados
         queryParams.append("workspaces", user.workspaces.join(","));
 
-        // Importante: Se selecionou um profissional, buscamos o ID dele para enviar no query param
         if (selectedInvestor !== "all") {
           const matchedUser = allUsers.find(u => u.email === selectedInvestor);
-          if (matchedUser && matchedUser.id) {
-            queryParams.append("executorId", matchedUser.id);
-          }
+          if (matchedUser?.id) queryParams.append("executorId", matchedUser.id);
           queryParams.append("professional", selectedInvestor);
         }
 
-        if (selectedProject !== "all") {
-          queryParams.append("project", selectedProject);
-        }
+        if (selectedProject !== "all") queryParams.append("project", selectedProject);
 
         let start = "";
         let end = "";
@@ -111,9 +127,9 @@ export function DashboardView() {
           start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
           end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
         } else if (period === "last-30") {
-          const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(now.getDate() - 30);
-          start = thirtyDaysAgo.toISOString().split("T")[0];
+          const d = new Date();
+          d.setDate(now.getDate() - 30);
+          start = d.toISOString().split("T")[0];
           end = now.toISOString().split("T")[0];
         } else if (period === "custom" && customStartDate && customEndDate) {
           start = customStartDate;
@@ -131,12 +147,11 @@ export function DashboardView() {
           setLogs(resJson.data || []);
         } else {
           const errData = await response.json().catch(() => ({}));
-          setError(errData.error || `Erro de conexão: Código ${response.status}`);
+          setError(errData.error || `Erro ${response.status}`);
           setLogs([]);
         }
       } catch (err: any) {
-        console.error("Erro ao carregar apontamentos", err);
-        setError(err.message || "Erro desconhecido na rede");
+        setError(err.message || "Erro de rede");
       } finally {
         setLoading(false);
       }
@@ -144,7 +159,7 @@ export function DashboardView() {
     fetchData();
   }, [user, period, selectedProject, customStartDate, customEndDate, selectedInvestor, allUsers]);
 
-  // Filtros locais aplicados no cliente
+  // Filtros locais
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
       const matchInvestor = selectedInvestor === "all" || log.professional === selectedInvestor;
@@ -152,567 +167,607 @@ export function DashboardView() {
       const matchSearch =
         searchQuery === "" ||
         log.task.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        log.workspace.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        log.professional.toLowerCase().includes(searchQuery.toLowerCase()) ||
         log.project.toLowerCase().includes(searchQuery.toLowerCase());
       return matchInvestor && matchWorkspace && matchSearch;
     });
   }, [logs, selectedInvestor, selectedWorkspace, searchQuery]);
 
-  // Lista dinâmica de workspaces baseada nos logs filtrados
+  // Listas dinâmicas
   const workspacesList = useMemo(() => {
-    const list = new Set<string>();
-    // Exibe apenas os workspaces relacionados ao investidor selecionado
-    const targetLogs = selectedInvestor === "all" 
-      ? logs 
-      : logs.filter(l => l.professional === selectedInvestor);
-      
-    targetLogs.forEach((l) => list.add(l.workspace));
-    return Array.from(list).sort();
+    const set = new Set<string>();
+    (selectedInvestor === "all" ? logs : logs.filter(l => l.professional === selectedInvestor))
+      .forEach(l => set.add(l.workspace));
+    return Array.from(set).sort();
   }, [logs, selectedInvestor]);
 
   const projectsList = useMemo(() => {
-    const list = new Set<string>();
-    logs.forEach((l) => list.add(l.project));
-    return Array.from(list).sort();
+    const set = new Set<string>();
+    logs.forEach(l => set.add(l.project));
+    return Array.from(set).sort();
   }, [logs]);
 
   // KPIs
-  const totalHours = useMemo(() => {
-    return filteredLogs.reduce((acc, curr) => acc + curr.hours, 0);
-  }, [filteredLogs]);
+  const totalHours = useMemo(() => filteredLogs.reduce((a, c) => a + c.hours, 0), [filteredLogs]);
+  const uniqueWorkspaces = useMemo(() => new Set(filteredLogs.map(l => l.workspace)).size, [filteredLogs]);
+  const uniqueProfessionals = useMemo(() => new Set(filteredLogs.map(l => l.professional)).size, [filteredLogs]);
+  const uniqueProjects = useMemo(() => new Set(filteredLogs.map(l => l.project)).size, [filteredLogs]);
+  const totalLogs = filteredLogs.length;
 
-  const activeWorkspacesCount = useMemo(() => {
-    const list = new Set(filteredLogs.map(l => l.workspace));
-    return list.size;
-  }, [filteredLogs]);
-
-  const activeProjectsCount = useMemo(() => {
-    const list = new Set(filteredLogs.map(l => l.project));
-    return list.size;
-  }, [filteredLogs]);
-
-  // Variação visual simulada
-  const simulatedVariation = useMemo(() => {
-    const base = selectedInvestor ? selectedInvestor.length * 1.8 : 12.0;
-    return {
-      hours: `${base > 15 ? "+" : "-"}${(base % 7).toFixed(1)}%`,
-      isNegative: base <= 15,
-    };
-  }, [selectedInvestor]);
-
-  // Gráfico 1: Workspaces onde mais trabalhou (distribuição de horas do investidor)
-  const workspaceChartData = useMemo(() => {
-    const dataMap: Record<string, { name: string; horas: number }> = {};
-    filteredLogs.forEach((log) => {
-      if (!dataMap[log.workspace]) {
-        dataMap[log.workspace] = { name: log.workspace, horas: 0 };
+  // Ranking de Workspaces por horas
+  const workspaceRanking = useMemo(() => {
+    const map: Record<string, { name: string; hours: number; logs: number; professionals: Set<string> }> = {};
+    filteredLogs.forEach(log => {
+      if (!map[log.workspace]) {
+        map[log.workspace] = { name: log.workspace, hours: 0, logs: 0, professionals: new Set() };
       }
-      dataMap[log.workspace].horas += log.hours;
+      map[log.workspace].hours += log.hours;
+      map[log.workspace].logs += 1;
+      map[log.workspace].professionals.add(log.professional);
     });
-    return Object.values(dataMap).sort((a, b) => b.horas - a.horas);
+    return Object.values(map)
+      .map(ws => ({ ...ws, professionals: ws.professionals.size }))
+      .sort((a, b) => b.hours - a.hours);
   }, [filteredLogs]);
 
-  // Gráfico 2: Evolução de horas semanais
-  const weeklyChartData = useMemo(() => {
-    const weeksMap: Record<string, number> = {
-      "Semana 1": 0,
-      "Semana 2": 0,
-      "Semana 3": 0,
-      "Semana 4": 0,
-    };
+  const maxWsHours = workspaceRanking[0]?.hours || 1;
 
-    filteredLogs.forEach((log) => {
-      const day = new Date(log.date).getDate();
-      if (day <= 7) weeksMap["Semana 1"] += log.hours;
-      else if (day <= 14) weeksMap["Semana 2"] += log.hours;
-      else if (day <= 21) weeksMap["Semana 3"] += log.hours;
-      else weeksMap["Semana 4"] += log.hours;
+  // Ranking de Profissionais por horas
+  const professionalRanking = useMemo(() => {
+    const map: Record<string, { name: string; hours: number; logs: number; workspaces: Set<string> }> = {};
+    filteredLogs.forEach(log => {
+      const key = log.professional;
+      if (!map[key]) map[key] = { name: key, hours: 0, logs: 0, workspaces: new Set() };
+      map[key].hours += log.hours;
+      map[key].logs += 1;
+      map[key].workspaces.add(log.workspace);
     });
+    return Object.values(map)
+      .map(p => ({ ...p, workspaces: p.workspaces.size }))
+      .sort((a, b) => b.hours - a.hours)
+      .slice(0, 10);
+  }, [filteredLogs]);
 
-    return Object.entries(weeksMap).map(([week, horas]) => ({
-      name: week,
-      horas: parseFloat(horas.toFixed(1)),
-    }));
+  // Gráfico semanal
+  const weeklyChartData = useMemo(() => {
+    const weeksMap: Record<string, number> = { "Sem 1": 0, "Sem 2": 0, "Sem 3": 0, "Sem 4": 0 };
+    filteredLogs.forEach(log => {
+      const day = new Date(log.date).getDate();
+      if (day <= 7) weeksMap["Sem 1"] += log.hours;
+      else if (day <= 14) weeksMap["Sem 2"] += log.hours;
+      else if (day <= 21) weeksMap["Sem 3"] += log.hours;
+      else weeksMap["Sem 4"] += log.hours;
+    });
+    return Object.entries(weeksMap).map(([name, horas]) => ({ name, horas: parseFloat(horas.toFixed(1)) }));
+  }, [filteredLogs]);
+
+  // Pie por tipo de projeto
+  const projectPieData = useMemo(() => {
+    const map: Record<string, number> = {};
+    filteredLogs.forEach(log => {
+      map[log.project] = (map[log.project] || 0) + log.hours;
+    });
+    return Object.entries(map)
+      .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(1)) }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
   }, [filteredLogs]);
 
   // Paginação
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
   const paginatedLogs = useMemo(() => {
-    const startIdx = (currentPage - 1) * itemsPerPage;
-    return filteredLogs.slice(startIdx, startIdx + itemsPerPage);
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredLogs.slice(start, start + itemsPerPage);
   }, [filteredLogs, currentPage]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedInvestor, selectedWorkspace, selectedProject, period, searchQuery]);
+  useEffect(() => { setCurrentPage(1); }, [selectedInvestor, selectedWorkspace, selectedProject, period, searchQuery]);
 
   return (
-    <div className="flex min-h-screen bg-black text-[#f4f4f5]">
-      {/* Sidebar */}
-      <aside className="w-56 shrink-0 bg-[#09090b] border-r border-zinc-900 flex flex-col justify-between p-4 z-20">
+    <div className="flex min-h-screen" style={{ background: "#000000", color: "#f4f4f5" }}>
+      
+      {/* ─── SIDEBAR ─── */}
+      <aside className="w-52 shrink-0 flex flex-col justify-between py-5 px-3 z-20 border-r" style={{ background: "var(--sidebar-bg)", borderColor: "var(--border)" }}>
         <div>
           {/* Logo */}
-          <div className="flex items-center gap-2 mb-8 px-2 py-1">
-            <div className="w-6 h-6 bg-red-600 rounded flex items-center justify-center">
-              <span className="text-white font-extrabold text-xs tracking-tighter">eK</span>
+          <div className="flex items-center gap-2 mb-7 px-2">
+            <div className="w-6 h-6 rounded flex items-center justify-center" style={{ background: "#dc2626" }}>
+              <span className="text-white font-black text-xs">eK</span>
             </div>
-            <span className="text-xs font-bold tracking-tight text-white uppercase">
-              Ekyte <span className="text-zinc-655 font-medium">Dash</span>
-            </span>
+            <span className="text-[11px] font-bold tracking-wider uppercase text-white">eKyte<span className="font-normal" style={{ color: "var(--text-muted)" }}> Dash</span></span>
           </div>
 
-          {/* Navigation */}
-          <nav className="space-y-1">
-            <button
-              onClick={() => setActiveTab("overview")}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-xs font-semibold transition-colors ${
-                activeTab === "overview"
-                  ? "bg-zinc-900 text-white border border-zinc-800"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/40"
-              }`}
-            >
-              <BarChart3 className="w-3.5 h-3.5" />
+          {/* Nav */}
+          <nav className="space-y-0.5">
+            <button onClick={() => setActiveTab("overview")} className={`nav-item ${activeTab === "overview" ? "active" : ""}`}>
+              <BarChart3 className="w-3.5 h-3.5 shrink-0" />
               Visão Geral
             </button>
-            <button
-              onClick={() => setActiveTab("detailed")}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-xs font-semibold transition-colors ${
-                activeTab === "detailed"
-                  ? "bg-zinc-900 text-white border border-zinc-800"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/40"
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Relatório Detalhado
+            <button onClick={() => setActiveTab("workspaces")} className={`nav-item ${activeTab === "workspaces" ? "active" : ""}`}>
+              <Layers className="w-3.5 h-3.5 shrink-0" />
+              Workspaces
+            </button>
+            <button onClick={() => setActiveTab("detailed")} className={`nav-item ${activeTab === "detailed" ? "active" : ""}`}>
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              Log de Horas
             </button>
           </nav>
-        </div>
 
-        {/* User Info Footer */}
-        <div className="border-t border-zinc-900 pt-4 px-2">
-          <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-7 h-7 bg-zinc-900 rounded-full flex items-center justify-center border border-zinc-850 text-red-500 font-bold text-[10px] uppercase">
-              {user?.name.slice(0, 2)}
-            </div>
-            <div className="truncate">
-              <span className="text-[11px] font-semibold text-white block truncate">{user?.name}</span>
-              <span className="text-[9px] text-zinc-500 uppercase block truncate">Gestor Geral</span>
+          {/* Divider */}
+          <div className="my-5 border-t" style={{ borderColor: "var(--border)" }} />
+
+          {/* Stats quick view */}
+          <div className="px-2 space-y-3">
+            <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Resumo</p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Total horas</span>
+                <span className="text-[11px] font-bold text-white mono-nums">{formatHours(totalHours)}h</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Workspaces</span>
+                <span className="text-[11px] font-bold text-white mono-nums">{uniqueWorkspaces}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Profissionais</span>
+                <span className="text-[11px] font-bold text-white mono-nums">{uniqueProfessionals}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Apontamentos</span>
+                <span className="text-[11px] font-bold text-white mono-nums">{totalLogs}</span>
+              </div>
             </div>
           </div>
-          <button
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-transparent hover:bg-zinc-900 border border-zinc-900 hover:border-zinc-850 text-zinc-400 hover:text-white text-[10px] font-bold rounded transition-colors"
-          >
-            <LogOut className="w-3 h-3" />
-            Sair
-          </button>
+        </div>
+
+        {/* User footer */}
+        <div>
+          <div className="border-t mb-3" style={{ borderColor: "var(--border)" }} />
+          <div className="px-2">
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold uppercase border" style={{ background: "rgba(220,38,38,0.08)", borderColor: "rgba(220,38,38,0.2)", color: "#f87171" }}>
+                {user?.name?.slice(0, 2) || "?"}
+              </div>
+              <div className="truncate">
+                <p className="text-[10px] font-semibold text-white truncate">{user?.name}</p>
+                <p className="text-[9px]" style={{ color: "var(--text-muted)" }}>Gestor</p>
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-[10px] font-semibold transition-colors"
+              style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+              onMouseEnter={e => { (e.target as HTMLElement).style.color = "#f87171"; }}
+              onMouseLeave={e => { (e.target as HTMLElement).style.color = "var(--text-muted)"; }}
+            >
+              <LogOut className="w-3 h-3" />
+              Sair
+            </button>
+          </div>
         </div>
       </aside>
 
-      {/* Main Panel */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Header */}
-        <header className="h-16 bg-black border-b border-zinc-900 flex items-center justify-between px-6 sticky top-0 z-10">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-              {activeTab === "overview" ? "Visão Geral" : "Log de Horas"}
-            </h1>
+      {/* ─── MAIN ─── */}
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
 
-            {/* Flat Period Controls */}
-            <div className="flex bg-[#09090b] border border-zinc-900 rounded p-0.5 text-[10px]">
-              <button
-                onClick={() => setPeriod("current-month")}
-                className={`px-2.5 py-1 rounded transition-colors font-medium ${
-                  period === "current-month" ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-white"
-                }`}
-              >
-                Mês Atual
-              </button>
-              <button
-                onClick={() => setPeriod("last-30")}
-                className={`px-2.5 py-1 rounded transition-colors font-medium ${
-                  period === "last-30" ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-white"
-                }`}
-              >
-                30 Dias
-              </button>
-              <button
-                onClick={() => setPeriod("custom")}
-                className={`px-2.5 py-1 rounded transition-colors font-medium ${
-                  period === "custom" ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-white"
-                }`}
-              >
-                Personalizado
-              </button>
+        {/* ── TOPBAR ── */}
+        <header className="h-14 flex items-center justify-between px-5 shrink-0 border-b" style={{ background: "#000", borderColor: "var(--border)" }}>
+          <div className="flex items-center gap-3">
+            {/* Period selector */}
+            <div className="flex rounded overflow-hidden border text-[10px]" style={{ borderColor: "var(--border)" }}>
+              {(["current-month", "last-30", "custom"] as const).map((p, i) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className="px-3 py-1.5 font-medium transition-colors"
+                  style={{
+                    background: period === p ? "#111113" : "transparent",
+                    color: period === p ? "#fff" : "var(--text-muted)",
+                    borderLeft: i > 0 ? "1px solid var(--border)" : "none"
+                  }}
+                >
+                  {p === "current-month" ? "Mês Atual" : p === "last-30" ? "30 Dias" : "Período"}
+                </button>
+              ))}
             </div>
-          </div>
-
-          {/* Top Level Selectors */}
-          <div className="flex items-center gap-2">
             {period === "custom" && (
-              <div className="flex items-center gap-1.5 bg-[#09090b] border border-zinc-900 rounded px-2 py-1 text-[10px]">
-                <Calendar className="w-3 h-3 text-zinc-500" />
-                <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                  className="bg-transparent text-white border-0 w-24 text-[10px]"
-                />
-                <span className="text-zinc-650">-</span>
-                <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                  className="bg-transparent text-white border-0 w-24 text-[10px]"
-                />
+              <div className="flex items-center gap-1.5 rounded border px-2 py-1 text-[10px]" style={{ borderColor: "var(--border)" }}>
+                <Calendar className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
+                <input type="date" value={customStartDate} onChange={e => setCustomStartDate(e.target.value)} className="bg-transparent text-white border-0 w-24 text-[10px]" />
+                <span style={{ color: "var(--text-muted)" }}>–</span>
+                <input type="date" value={customEndDate} onChange={e => setCustomEndDate(e.target.value)} className="bg-transparent text-white border-0 w-24 text-[10px]" />
               </div>
             )}
+          </div>
 
-            {/* Selector: Investidor / Profissional Dinâmico */}
-            <div className="relative">
-              <User className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
+          {/* Right filters */}
+          <div className="flex items-center gap-2">
+            {/* Professional */}
+            <div className="relative flex items-center">
+              <User className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--text-muted)" }} />
               <select
                 value={selectedInvestor}
-                onChange={(e) => setSelectedInvestor(e.target.value)}
-                className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-red-500 font-bold appearance-none cursor-pointer"
+                onChange={e => setSelectedInvestor(e.target.value)}
+                className="pl-6 pr-6 py-1.5 rounded border text-[10px] font-semibold appearance-none cursor-pointer"
+                style={{ background: "#050507", borderColor: "var(--border)", color: selectedInvestor !== "all" ? "#f87171" : "var(--text-muted)" }}
               >
-                <option value="all">Todos os Investidores</option>
-                {allUsers.map((u) => (
-                  <option key={u.email} value={u.email}>
-                    {u.name} ({u.email})
-                  </option>
+                <option value="all">Todos os Profissionais</option>
+                {allUsers.map(u => (
+                  <option key={u.email} value={u.email}>{u.name} ({u.email})</option>
                 ))}
               </select>
+              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
             </div>
 
-            {/* Workspace Dropdown */}
-            <div className="relative">
-              <Layers className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
+            {/* Workspace */}
+            <div className="relative flex items-center">
+              <Layers className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--text-muted)" }} />
               <select
                 value={selectedWorkspace}
-                onChange={(e) => setSelectedWorkspace(e.target.value)}
-                className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-white appearance-none cursor-pointer"
+                onChange={e => setSelectedWorkspace(e.target.value)}
+                className="pl-6 pr-6 py-1.5 rounded border text-[10px] font-medium appearance-none cursor-pointer"
+                style={{ background: "#050507", borderColor: "var(--border)", color: selectedWorkspace !== "all" ? "#fff" : "var(--text-muted)" }}
               >
                 <option value="all">Todos os Workspaces</option>
-                {workspacesList.map((ws) => (
-                  <option key={ws} value={ws}>
-                    {ws}
-                  </option>
-                ))}
+                {workspacesList.map(ws => <option key={ws} value={ws}>{ws}</option>)}
               </select>
+              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
             </div>
 
-            {/* Project Dropdown */}
-            <div className="relative">
-              <Briefcase className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
+            {/* Project */}
+            <div className="relative flex items-center">
+              <FolderKanban className="w-3 h-3 absolute left-2 pointer-events-none" style={{ color: "var(--text-muted)" }} />
               <select
                 value={selectedProject}
-                onChange={(e) => setSelectedProject(e.target.value)}
-                className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-white appearance-none cursor-pointer"
+                onChange={e => setSelectedProject(e.target.value)}
+                className="pl-6 pr-6 py-1.5 rounded border text-[10px] font-medium appearance-none cursor-pointer"
+                style={{ background: "#050507", borderColor: "var(--border)", color: selectedProject !== "all" ? "#fff" : "var(--text-muted)" }}
               >
                 <option value="all">Todos os Projetos</option>
-                {projectsList.map((pj) => (
-                  <option key={pj} value={pj}>
-                    {pj}
-                  </option>
-                ))}
+                {projectsList.map(pj => <option key={pj} value={pj}>{pj}</option>)}
               </select>
+              <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
             </div>
           </div>
         </header>
 
-        {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2.5">
-            <div className="w-6 h-6 border-2 border-zinc-800 border-t-red-650 rounded-full animate-spin" />
-            <span className="text-xs text-zinc-500 font-medium">Carregando da API eKyte...</span>
-          </div>
-        ) : error ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto gap-4">
-            <div className="p-2.5 bg-red-950/20 border border-red-900/40 rounded text-red-500 font-bold text-[10px] uppercase tracking-wider">
-              Conexão eKyte pendente
+        {/* ── PAGE CONTENT ── */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          
+          {loading ? (
+            <div className="h-full min-h-[400px] flex flex-col items-center justify-center gap-3">
+              <div className="w-8 h-8 rounded-full border-2 spin-loader" style={{ borderColor: "var(--border)", borderTopColor: "#dc2626" }} />
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Consultando API eKyte...</p>
             </div>
-            <p className="text-xs text-zinc-400 leading-relaxed px-4">
-              {error}
-            </p>
-            <div className="text-[10px] text-zinc-500 bg-[#09090b] p-3.5 rounded border border-zinc-900 w-full text-left leading-relaxed">
-              <span className="font-bold text-white block mb-1">Como resolver:</span>
-              1. Acesse o painel da Vercel.<br/>
-              2. Vá em <strong>Settings</strong> &gt; <strong>Environment Variables</strong>.<br/>
-              3. Verifique se os nomes das chaves estão exatos: <strong>EKYTE_API_TOKEN</strong> e <strong>EKYTE_API_URL</strong>.<br/>
-              4. <strong>Importante:</strong> Após salvar as variáveis, vá na aba <strong>Deployments</strong> e clique em <strong>Redeploy</strong> no deploy mais recente para ativar as configurações.
+          ) : error ? (
+            <div className="min-h-[400px] flex flex-col items-center justify-center gap-4 max-w-md mx-auto text-center">
+              <div className="p-3 rounded border" style={{ borderColor: "rgba(220,38,38,0.2)", background: "rgba(220,38,38,0.05)" }}>
+                <AlertCircle className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white mb-1">Conexão com eKyte</p>
+                <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>{error}</p>
+              </div>
+              <div className="text-[10px] rounded border p-3 w-full text-left" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
+                Verifique as variáveis de ambiente <strong className="text-white">EKYTE_API_TOKEN</strong> e <strong className="text-white">EKYTE_COMPANY_ID</strong> na Vercel e faça um Redeploy.
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="p-6 space-y-6 flex-1">
-            {/* 1. KPIs Section */}
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Hours Card */}
-              <div className="premium-card p-5 rounded">
-                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  <span>Horas Apontadas</span>
-                  <Clock className="w-3.5 h-3.5 text-zinc-500" />
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">{totalHours.toFixed(1)}h</span>
-                  <span className={`text-[10px] font-bold ${simulatedVariation.isNegative ? "text-green-500" : "text-red-500"} mono-nums`}>
-                    {simulatedVariation.hours}
-                  </span>
-                </div>
-              </div>
+          ) : (
+            <>
 
-              {/* Workspaces Card */}
-              <div className="premium-card p-5 rounded">
-                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  <span>Workspaces Atendidos</span>
-                  <Layers className="w-3.5 h-3.5 text-zinc-500" />
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">{activeWorkspacesCount}</span>
-                </div>
-              </div>
-
-              {/* Projects Card */}
-              <div className="premium-card p-5 rounded">
-                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  <span>Projetos Envolvidos</span>
-                  <Briefcase className="w-3.5 h-3.5 text-zinc-500" />
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">{activeProjectsCount}</span>
-                </div>
-              </div>
-            </section>
-
-            {activeTab === "overview" ? (
-              <>
-                {/* 2. Charts */}
-                <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Bar Chart: Workspaces onde mais trabalhou */}
-                  <div className="premium-card p-5 rounded">
-                    <div className="mb-4">
-                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Workspaces Mais Trabalhados (Horas)</h3>
+              {/* ─── KPI STRIP ─── */}
+              <div className="grid grid-cols-5 gap-3">
+                {[
+                  { label: "Horas Totais", value: `${formatHours(totalHours)}h`, icon: <Clock className="w-3.5 h-3.5" />, mono: true },
+                  { label: "Workspaces", value: String(uniqueWorkspaces), icon: <Layers className="w-3.5 h-3.5" />, mono: true },
+                  { label: "Profissionais", value: String(uniqueProfessionals), icon: <Users className="w-3.5 h-3.5" />, mono: true },
+                  { label: "Projetos", value: String(uniqueProjects), icon: <Briefcase className="w-3.5 h-3.5" />, mono: true },
+                  { label: "Apontamentos", value: String(totalLogs), icon: <Activity className="w-3.5 h-3.5" />, mono: true },
+                ].map((kpi, i) => (
+                  <div key={i} className="kpi-card rounded-md p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>{kpi.label}</span>
+                      <span style={{ color: "var(--text-muted)" }}>{kpi.icon}</span>
                     </div>
-                    <div className="h-64">
-                      {workspaceChartData.length === 0 ? (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">Sem dados.</div>
-                      ) : (
+                    <p className={`text-xl font-extrabold text-white ${kpi.mono ? "mono-nums" : ""}`}>{kpi.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* ─── OVERVIEW TAB ─── */}
+              {activeTab === "overview" && (
+                <>
+                  {/* Charts row */}
+                  <div className="grid grid-cols-5 gap-4">
+                    {/* Weekly bar */}
+                    <div className="col-span-3 premium-card rounded-md p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-4" style={{ color: "var(--text-muted)" }}>Evolução Semanal — Horas</p>
+                      <div className="h-48">
                         <ResponsiveContainer width="100%" height="100%">
-                          <ReBarChart data={workspaceChartData} margin={{ top: 10, right: 10, left: -30, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="2 2" stroke="#121214" vertical={false} />
-                            <XAxis dataKey="name" stroke="#3f3f46" fontSize={9} tickLine={false} />
-                            <YAxis stroke="#3f3f46" fontSize={9} tickLine={false} />
+                          <ReBarChart data={weeklyChartData} margin={{ top: 5, right: 0, left: -30, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="2 4" stroke="#0d0d0f" vertical={false} />
+                            <XAxis dataKey="name" stroke="#27272a" fontSize={9} tickLine={false} axisLine={false} />
+                            <YAxis stroke="#27272a" fontSize={9} tickLine={false} axisLine={false} />
                             <Tooltip
-                              contentStyle={{ background: "#09090b", border: "1px solid #18181b", borderRadius: "2px" }}
-                              labelClassName="text-white text-xs font-bold"
-                              itemStyle={{ color: "#ef4444", fontSize: "11px" }}
+                              contentStyle={{ background: "#08080a", border: "1px solid #1a1a1d", borderRadius: "4px", fontSize: "11px" }}
+                              itemStyle={{ color: "#f87171" }}
+                              labelStyle={{ color: "#fff", fontWeight: "bold" }}
+                              formatter={(val: any) => [`${val}h`, "Horas"]}
                             />
-                            <Bar dataKey="horas" fill="#dc2626" maxBarSize={30} />
+                            <Bar dataKey="horas" fill="#dc2626" radius={[2, 2, 0, 0]} maxBarSize={36} />
                           </ReBarChart>
                         </ResponsiveContainer>
-                      )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Line Chart: Evolução Semanal de Horas */}
-                  <div className="premium-card p-5 rounded">
-                    <div className="mb-4">
-                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Evolução de Horas Semanais</h3>
-                    </div>
-                    <div className="h-64">
-                      {weeklyChartData.length === 0 ? (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">Sem dados.</div>
+                    {/* Pie chart - project types */}
+                    <div className="col-span-2 premium-card rounded-md p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-4" style={{ color: "var(--text-muted)" }}>Distribuição por Projeto</p>
+                      {projectPieData.length === 0 ? (
+                        <div className="h-48 flex items-center justify-center text-xs" style={{ color: "var(--text-muted)" }}>Sem dados</div>
                       ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <ReLineChart data={weeklyChartData} margin={{ top: 10, right: 10, left: -30, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="2 2" stroke="#121214" vertical={false} />
-                            <XAxis dataKey="name" stroke="#3f3f46" fontSize={9} tickLine={false} />
-                            <YAxis stroke="#3f3f46" fontSize={9} tickLine={false} />
-                            <Tooltip
-                              contentStyle={{ background: "#09090b", border: "1px solid #18181b", borderRadius: "2px" }}
-                              labelClassName="text-white text-xs font-bold"
-                              itemStyle={{ color: "#dc2626", fontSize: "11px" }}
-                            />
-                            <Line type="monotone" dataKey="horas" name="Horas Semanais" stroke="#dc2626" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                          </ReLineChart>
-                        </ResponsiveContainer>
+                        <div className="flex items-center gap-3">
+                          <div style={{ width: 140, height: 140 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie data={projectPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={62} strokeWidth={0}>
+                                  {projectPieData.map((_, index) => (
+                                    <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  contentStyle={{ background: "#08080a", border: "1px solid #1a1a1d", borderRadius: "4px", fontSize: "11px" }}
+                                  itemStyle={{ color: "#f87171" }}
+                                  formatter={(val: any) => [`${val}h`, ""]}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="flex-1 space-y-1.5 min-w-0">
+                            {projectPieData.slice(0, 5).map((p, i) => (
+                              <div key={i} className="flex items-center gap-1.5 min-w-0">
+                                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                                <span className="text-[9px] truncate" style={{ color: "#a1a1aa" }} title={p.name}>{p.name}</span>
+                                <span className="text-[9px] font-bold text-white ml-auto mono-nums shrink-0">{p.value}h</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
-                </section>
 
-                {/* 3. Paginated logs list */}
-                <section className="premium-card rounded">
-                  <div className="p-4 border-b border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Tarefas Realizadas</h3>
+                  {/* Top 5 workspace ranking */}
+                  <div className="premium-card rounded-md p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Top Workspaces por Horas</p>
+                      <button
+                        onClick={() => setActiveTab("workspaces")}
+                        className="text-[9px] font-semibold px-2 py-0.5 rounded"
+                        style={{ color: "#f87171", background: "rgba(220,38,38,0.07)", border: "1px solid rgba(220,38,38,0.15)" }}
+                      >
+                        Ver todos →
+                      </button>
                     </div>
-                    {/* Minimal Search */}
-                    <div className="relative w-full md:w-64">
-                      <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
-                      <input
-                        type="text"
-                        placeholder="Filtrar por tarefa..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-[#000000] border border-zinc-900 rounded pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-700 transition-colors"
-                      />
+                    <div className="space-y-2.5">
+                      {workspaceRanking.slice(0, 5).map((ws, i) => (
+                        <div key={ws.name} className="flex items-center gap-3">
+                          <span className="text-[9px] font-bold mono-nums w-4 shrink-0 text-right" style={{ color: i === 0 ? "#dc2626" : "var(--text-muted)" }}>
+                            {i + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] font-medium text-white truncate" title={ws.name}>{ws.name}</span>
+                              <span className="text-[10px] font-bold text-white mono-nums ml-2 shrink-0">{ws.hours.toFixed(1)}h</span>
+                            </div>
+                            <div className="progress-bar">
+                              <div className="progress-fill" style={{ width: `${(ws.hours / maxWsHours) * 100}%` }} />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium">{ws.professionals} prof.</span>
+                            <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium mono-nums">{ws.logs} apont.</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                  {/* Top Profissionais */}
+                  <div className="premium-card rounded-md overflow-hidden">
+                    <div className="px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Ranking de Profissionais</p>
+                    </div>
+                    <table className="w-full border-collapse">
                       <thead>
-                        <tr className="border-b border-zinc-900 bg-black text-[9px] uppercase font-bold text-zinc-500 tracking-wider">
-                          <th className="py-3 px-4">Data</th>
-                          <th className="py-3 px-4">Workspace</th>
-                          <th className="py-3 px-4">Projeto</th>
-                          <th className="py-3 px-4">Tarefa Realizada</th>
-                          <th className="py-3 px-4">Profissional</th>
-                          <th className="py-3 px-4 text-right">Horas</th>
+                        <tr className="border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                          {["#", "Profissional", "Workspaces", "Apontamentos", "Horas"].map((h, i) => (
+                            <th key={i} className={`py-2.5 px-4 text-[9px] font-bold uppercase tracking-wider ${i === 4 ? "text-right" : "text-left"}`} style={{ color: "var(--text-muted)", background: "#03030a" }}>
+                              {h}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-zinc-900/50 text-[11px]">
-                        {paginatedLogs.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="py-8 text-center text-zinc-600">Nenhum apontamento encontrado.</td>
+                      <tbody>
+                        {professionalRanking.map((p, i) => (
+                          <tr key={p.name} className="table-row-hover border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                            <td className="py-2.5 px-4 text-[10px] font-bold mono-nums" style={{ color: i === 0 ? "#dc2626" : "var(--text-muted)" }}>{i + 1}</td>
+                            <td className="py-2.5 px-4 text-[11px] text-white font-medium">{p.name}</td>
+                            <td className="py-2.5 px-4">
+                              <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium">{p.workspaces} ws</span>
+                            </td>
+                            <td className="py-2.5 px-4 text-[10px] mono-nums" style={{ color: "var(--text-muted)" }}>{p.logs}</td>
+                            <td className="py-2.5 px-4 text-right text-[11px] font-bold text-white mono-nums">{p.hours.toFixed(1)}h</td>
                           </tr>
-                        ) : (
-                          paginatedLogs.map((log) => (
-                            <tr key={log.id} className="hover:bg-zinc-950 transition-colors">
-                              <td className="py-2.5 px-4 text-zinc-500 mono-nums">
-                                {new Date(log.date).toLocaleDateString("pt-BR")}
-                              </td>
-                              <td className="py-2.5 px-4 font-semibold text-red-500">{log.workspace}</td>
-                              <td className="py-2.5 px-4">
-                                <span className="bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px] px-2 py-0.5 rounded font-medium">
-                                  {log.project}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-4 text-zinc-300 max-w-xs truncate">{log.task}</td>
-                              <td className="py-2.5 px-4 text-zinc-450">{log.professional}</td>
-                              <td className="py-2.5 px-4 text-right font-bold text-white mono-nums">{log.hours.toFixed(1)}h</td>
-                            </tr>
-                          ))
+                        ))}
+                        {professionalRanking.length === 0 && (
+                          <tr><td colSpan={5} className="py-8 text-center text-xs" style={{ color: "var(--text-muted)" }}>Nenhum dado</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {/* ─── WORKSPACES TAB ─── */}
+              {activeTab === "workspaces" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-white">{workspaceRanking.length} workspaces com apontamentos</p>
+                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>Ordenado por horas decrescentes</p>
+                  </div>
+                  <div className="premium-card rounded-md overflow-hidden">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                          {["#", "Workspace", "Profissionais", "Apontamentos", "Distribuição", "Total Horas"].map((h, i) => (
+                            <th key={i} className={`py-3 px-4 text-[9px] font-bold uppercase tracking-wider ${i >= 4 ? "text-right" : "text-left"}`} style={{ color: "var(--text-muted)", background: "#03030a" }}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {workspaceRanking.map((ws, i) => (
+                          <tr key={ws.name} className="table-row-hover border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                            <td className="py-3 px-4 text-[10px] font-bold mono-nums" style={{ color: i === 0 ? "#dc2626" : "var(--text-muted)" }}>{i + 1}</td>
+                            <td className="py-3 px-4">
+                              <span className="text-[11px] font-medium text-white">{ws.name}</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium">{ws.professionals} prof.</span>
+                            </td>
+                            <td className="py-3 px-4 text-[10px] mono-nums" style={{ color: "var(--text-muted)" }}>{ws.logs} apont.</td>
+                            <td className="py-3 px-4 w-32">
+                              <div className="progress-bar">
+                                <div className="progress-fill" style={{ width: `${(ws.hours / maxWsHours) * 100}%` }} />
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right text-[12px] font-bold text-white mono-nums">{ws.hours.toFixed(1)}h</td>
+                          </tr>
+                        ))}
+                        {workspaceRanking.length === 0 && (
+                          <tr><td colSpan={6} className="py-8 text-center text-xs" style={{ color: "var(--text-muted)" }}>Nenhum workspace com apontamentos no período</td></tr>
                         )}
                       </tbody>
                     </table>
                   </div>
 
-                  {/* Table Footer */}
-                  {totalPages > 1 && (
-                    <div className="p-3 bg-black flex items-center justify-between border-t border-zinc-900">
-                      <span className="text-[10px] text-zinc-500">
-                        Mostrando <span className="font-semibold text-white">{paginatedLogs.length}</span> de <span className="font-semibold text-white">{filteredLogs.length}</span> registros
-                      </span>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                          disabled={currentPage === 1}
-                          className="p-1 bg-[#09090b] hover:bg-zinc-900 border border-zinc-900 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                        >
-                          <ChevronLeft className="w-3.5 h-3.5" />
-                        </button>
-                        <span className="text-[10px] flex items-center px-2 text-zinc-400 font-semibold">
-                          Página {currentPage} de {totalPages}
-                        </span>
-                        <button
-                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                          disabled={currentPage === totalPages}
-                          className="p-1 bg-[#09090b] hover:bg-zinc-900 border border-zinc-900 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                        >
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
+                  {/* Workspace charts */}
+                  {workspaceRanking.length > 0 && (
+                    <div className="premium-card rounded-md p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-4" style={{ color: "var(--text-muted)" }}>Top Workspaces — Gráfico de Horas</p>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ReBarChart data={workspaceRanking.slice(0, 10)} layout="vertical" margin={{ top: 0, right: 0, left: 110, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="2 4" stroke="#0d0d0f" horizontal={false} />
+                            <XAxis type="number" stroke="#27272a" fontSize={9} tickLine={false} axisLine={false} />
+                            <YAxis type="category" dataKey="name" stroke="#27272a" fontSize={9} tickLine={false} axisLine={false} width={110} tick={{ fill: "#71717a" }} />
+                            <Tooltip
+                              contentStyle={{ background: "#08080a", border: "1px solid #1a1a1d", borderRadius: "4px", fontSize: "11px" }}
+                              itemStyle={{ color: "#f87171" }}
+                              labelStyle={{ color: "#fff", fontWeight: "bold" }}
+                              formatter={(val: any) => [`${parseFloat(val).toFixed(1)}h`, "Horas"]}
+                            />
+                            <Bar dataKey="hours" fill="#dc2626" radius={[0, 2, 2, 0]} maxBarSize={14} />
+                          </ReBarChart>
+                        </ResponsiveContainer>
                       </div>
                     </div>
                   )}
-                </section>
-              </>
-            ) : (
-              /* Detailed Table View Tab */
-              <section className="premium-card rounded">
-                <div className="p-4 border-b border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">Log Detalhado de Atividades</h3>
-                  </div>
-                  <div className="relative w-full md:w-64">
-                    <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
-                    <input
-                      type="text"
-                      placeholder="Filtrar lançamentos..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-[#000000] border border-zinc-900 rounded pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-700 transition-colors"
-                    />
-                  </div>
                 </div>
+              )}
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-zinc-900 bg-black text-[9px] uppercase font-bold text-zinc-500 tracking-wider">
-                        <th className="py-3 px-4">ID</th>
-                        <th className="py-3 px-4">Data</th>
-                        <th className="py-3 px-4">Workspace</th>
-                        <th className="py-3 px-4">Projeto</th>
-                        <th className="py-3 px-4">Atividade Realizada</th>
-                        <th className="py-3 px-4">Profissional</th>
-                        <th className="py-3 px-4 text-right">Horas</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-900/50 text-[11px]">
-                      {paginatedLogs.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="py-8 text-center text-zinc-600">Nenhum apontamento.</td>
-                        </tr>
-                      ) : (
-                        paginatedLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-zinc-950 transition-colors">
-                            <td className="py-2.5 px-4 text-zinc-650 mono-nums">#{log.id}</td>
-                            <td className="py-2.5 px-4 text-zinc-500 mono-nums">
-                              {new Date(log.date).toLocaleDateString("pt-BR")}
-                            </td>
-                            <td className="py-2.5 px-4 font-semibold text-red-500">{log.workspace}</td>
-                            <td className="py-2.5 px-4 text-zinc-400 font-semibold">{log.project}</td>
-                            <td className="py-2.5 px-4 text-zinc-350 max-w-sm truncate">{log.task}</td>
-                            <td className="py-2.5 px-4 text-zinc-400">{log.professional}</td>
-                            <td className="py-2.5 px-4 text-right text-white font-bold mono-nums">{log.hours.toFixed(1)}h</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Table Footer */}
-                {totalPages > 1 && (
-                  <div className="p-3 bg-black flex items-center justify-between border-t border-zinc-900">
-                    <span className="text-[10px] text-zinc-500">
-                      Exibindo <span className="font-semibold text-white">{paginatedLogs.length}</span> de <span className="font-semibold text-white">{filteredLogs.length}</span> registros
-                    </span>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                        className="p-1 bg-[#09090b] hover:bg-zinc-900 border border-zinc-900 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="text-[10px] flex items-center px-2 text-zinc-400 font-semibold">
-                        Página {currentPage} de {totalPages}
-                      </span>
-                      <button
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                        className="p-1 bg-[#09090b] hover:bg-zinc-900 border border-zinc-900 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                      >
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
+              {/* ─── LOG DE HORAS TAB ─── */}
+              {activeTab === "detailed" && (
+                <div className="space-y-3">
+                  {/* Search */}
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-1 max-w-xs">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--text-muted)" }} />
+                      <input
+                        type="text"
+                        placeholder="Buscar por tarefa, workspace..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        className="w-full rounded border text-[11px] pl-8 pr-3 py-1.5 text-white"
+                        style={{ background: "#050507", borderColor: "var(--border)" }}
+                      />
                     </div>
+                    <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                      {filteredLogs.length} apontamentos · {totalHours.toFixed(1)}h total
+                    </p>
                   </div>
-                )}
-              </section>
-            )}
-          </div>
-        )}
+
+                  <div className="premium-card rounded-md overflow-hidden">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                          {["ID", "Data", "Profissional", "Workspace", "Projeto", "Tarefa", "Horas"].map((h, i) => (
+                            <th key={i} className={`py-3 px-3 text-[9px] font-bold uppercase tracking-wider ${i === 6 ? "text-right" : "text-left"}`} style={{ color: "var(--text-muted)", background: "#03030a" }}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedLogs.length === 0 ? (
+                          <tr><td colSpan={7} className="py-10 text-center text-xs" style={{ color: "var(--text-muted)" }}>Nenhum apontamento encontrado.</td></tr>
+                        ) : (
+                          paginatedLogs.map(log => (
+                            <tr key={log.id} className="table-row-hover border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                              <td className="py-2.5 px-3 text-[9px] mono-nums" style={{ color: "var(--text-muted)" }}>#{log.id}</td>
+                              <td className="py-2.5 px-3 text-[10px] mono-nums" style={{ color: "var(--text-muted)" }}>
+                                {new Date(log.date).toLocaleDateString("pt-BR")}
+                              </td>
+                              <td className="py-2.5 px-3 text-[10px] max-w-[120px] truncate" style={{ color: "#a1a1aa" }} title={log.professional}>{log.professional}</td>
+                              <td className="py-2.5 px-3">
+                                <span className="text-[10px] font-semibold" style={{ color: "#f87171" }}>{log.workspace}</span>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className="badge-idle text-[9px] px-1.5 py-0.5 rounded font-medium max-w-[120px] truncate block" title={log.project}>{log.project}</span>
+                              </td>
+                              <td className="py-2.5 px-3 text-[10px] max-w-[200px] truncate" style={{ color: "#e4e4e7" }} title={log.task}>{log.task}</td>
+                              <td className="py-2.5 px-3 text-right text-[11px] font-bold text-white mono-nums">{log.hours.toFixed(1)}h</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div className="px-4 py-3 flex items-center justify-between border-t" style={{ borderColor: "var(--border)" }}>
+                        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredLogs.length)} de {filteredLogs.length}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                            className="p-1 rounded border transition-colors disabled:opacity-25"
+                            style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text-muted)" }}
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-[10px] px-2" style={{ color: "var(--text-muted)" }}>{currentPage}/{totalPages}</span>
+                          <button
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            disabled={currentPage === totalPages}
+                            className="p-1 rounded border transition-colors disabled:opacity-25"
+                            style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text-muted)" }}
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </main>
     </div>
   );
