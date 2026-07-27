@@ -1,27 +1,38 @@
 import { NextResponse } from "next/server";
 
-// Mock de Usuários / Investidores e seus respectivos Workspaces no eKyte
+// Lista completa de todos os workspaces disponíveis no eKyte
+const ALL_WORKSPACES = [
+  "Workspace Alfa Tech",
+  "Alfa Finance",
+  "Workspace Beta Ventures",
+  "Beta Logistics",
+  "Workspace Gamma Health",
+];
+
+// Mock de Usuários
+// Agora todos os usuários possuem acesso à lista completa de workspaces (ALL_WORKSPACES),
+// permitindo que qualquer pessoa logada consiga ver e alternar entre quaisquer investidores e seus dados.
 const MOCK_INVESTORS = [
   {
     username: "alfa@invest.com",
     password: "alfa123",
     name: "Investimentos Alfa S/A",
     role: "investor",
-    workspaces: ["Workspace Alfa Tech", "Alfa Finance"],
+    workspaces: ALL_WORKSPACES,
   },
   {
     username: "beta@invest.com",
     password: "beta123",
     name: "Beta Ventures",
     role: "investor",
-    workspaces: ["Workspace Beta Ventures", "Beta Logistics"],
+    workspaces: ALL_WORKSPACES,
   },
   {
     username: "admin@invest.com",
     password: "admin123",
     name: "Master Admin (Gestor)",
     role: "admin",
-    workspaces: ["Workspace Alfa Tech", "Alfa Finance", "Workspace Beta Ventures", "Beta Logistics", "Workspace Gamma Health"],
+    workspaces: ALL_WORKSPACES,
   },
 ];
 

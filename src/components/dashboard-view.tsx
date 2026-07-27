@@ -25,11 +25,9 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  Filter,
   BarChart3,
-  ListTodo,
   FileText,
-  UserCheck,
+  User,
 } from "lucide-react";
 
 interface HourLog {
@@ -43,12 +41,20 @@ interface HourLog {
   costPerHour: number;
 }
 
+const INVESTORS_MAPPING = [
+  { id: "all", name: "Todos os Investidores", workspaces: ["Workspace Alfa Tech", "Alfa Finance", "Workspace Beta Ventures", "Beta Logistics", "Workspace Gamma Health"] },
+  { id: "alfa", name: "Investimentos Alfa S/A", workspaces: ["Workspace Alfa Tech", "Alfa Finance"] },
+  { id: "beta", name: "Beta Ventures", workspaces: ["Workspace Beta Ventures", "Beta Logistics"] },
+  { id: "gamma", name: "Gamma Health Group", workspaces: ["Workspace Gamma Health"] }
+];
+
 export function DashboardView() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<"overview" | "detailed">("overview");
 
   // State filters
   const [period, setPeriod] = useState<"current-month" | "last-30" | "custom">("current-month");
+  const [selectedInvestor, setSelectedInvestor] = useState<string>("all");
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("all");
   const [selectedProject, setSelectedProject] = useState<string>("all");
   const [customStartDate, setCustomStartDate] = useState<string>("");
@@ -63,6 +69,15 @@ export function DashboardView() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 8;
 
+  const activeWorkspacesToFetch = useMemo(() => {
+    const matched = INVESTORS_MAPPING.find(inv => inv.id === selectedInvestor);
+    return matched ? matched.workspaces : [];
+  }, [selectedInvestor]);
+
+  useEffect(() => {
+    setSelectedWorkspace("all");
+  }, [selectedInvestor]);
+
   // Fetch eKyte integration proxy
   useEffect(() => {
     async function fetchData() {
@@ -70,13 +85,12 @@ export function DashboardView() {
       setLoading(true);
       try {
         const queryParams = new URLSearchParams();
-        queryParams.append("workspaces", user.workspaces.join(","));
+        queryParams.append("workspaces", activeWorkspacesToFetch.join(","));
 
         if (selectedProject !== "all") {
           queryParams.append("project", selectedProject);
         }
 
-        // Period Filtering dates calculated
         let start = "";
         let end = "";
         const now = new Date();
@@ -111,9 +125,8 @@ export function DashboardView() {
       }
     }
     fetchData();
-  }, [user, period, selectedProject, customStartDate, customEndDate]);
+  }, [user, period, selectedProject, customStartDate, customEndDate, activeWorkspacesToFetch]);
 
-  // Compute sub-filters locally since Workspace and Search can be processed quickly on the client
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
       const matchWorkspace = selectedWorkspace === "all" || log.workspace === selectedWorkspace;
@@ -126,8 +139,6 @@ export function DashboardView() {
     });
   }, [logs, selectedWorkspace, searchQuery]);
 
-  // Available workspaces and projects list for filters
-  const workspacesList = useMemo(() => user?.workspaces || [], [user]);
   const projectsList = useMemo(() => {
     const list = new Set<string>();
     logs.forEach((l) => list.add(l.project));
@@ -148,18 +159,17 @@ export function DashboardView() {
     return totalInvestment / totalHours;
   }, [totalHours, totalInvestment]);
 
-  // Variation simulation (last month variation placeholder)
+  // Stable variation mockup
   const simulatedVariation = useMemo(() => {
-    // Generates a mock but stable percentage variation based on user name length for visual flair
-    const base = user?.name ? user.name.length * 1.5 : 8.5;
+    const base = selectedInvestor === "all" ? 12.5 : selectedInvestor.length * 2.5;
     return {
       hours: `${base > 15 ? "+" : "-"}${(base % 7).toFixed(1)}%`,
       cost: `${base > 15 ? "+" : "-"}${(base % 5).toFixed(1)}%`,
       isNegative: base <= 15,
     };
-  }, [user]);
+  }, [selectedInvestor]);
 
-  // Chart 1: Hours by Workspace (differentiates work between workspaces)
+  // Hours per Workspace
   const workspaceChartData = useMemo(() => {
     const dataMap: Record<string, { name: string; horas: number; custo: number }> = {};
     filteredLogs.forEach((log) => {
@@ -172,7 +182,7 @@ export function DashboardView() {
     return Object.values(dataMap);
   }, [filteredLogs]);
 
-  // Chart 2: Daily Evolution of Hours
+  // Daily Evolution
   const dailyChartData = useMemo(() => {
     const dataMap: Record<string, Record<string, number>> = {};
     filteredLogs.forEach((log) => {
@@ -180,14 +190,12 @@ export function DashboardView() {
       if (!dataMap[dateLabel]) {
         dataMap[dateLabel] = {};
       }
-      // Sum per workspace to allow stacked/multi-line chart
       if (!dataMap[dateLabel][log.workspace]) {
         dataMap[dateLabel][log.workspace] = 0;
       }
       dataMap[dateLabel][log.workspace] += log.hours;
     });
 
-    // Transform map to array ordered by date string
     return Object.entries(dataMap)
       .map(([date, workspaces]) => {
         const item: any = { date };
@@ -207,7 +215,7 @@ export function DashboardView() {
       });
   }, [filteredLogs]);
 
-  // Table pagination
+  // Pagination
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
   const paginatedLogs = useMemo(() => {
     const startIdx = (currentPage - 1) * itemsPerPage;
@@ -216,103 +224,102 @@ export function DashboardView() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedWorkspace, selectedProject, period, searchQuery]);
+  }, [selectedInvestor, selectedWorkspace, selectedProject, period, searchQuery]);
 
   return (
-    <div className="flex min-h-screen bg-[#050505] text-[#f5f5f7]">
-      {/* Sidebar */}
-      <aside className="w-64 shrink-0 bg-[#0a0a0a] border-r border-zinc-900 flex flex-col justify-between p-6 z-20">
+    <div className="flex min-h-screen bg-black text-[#f4f4f5]">
+      {/* Sidebar - Flat, solid black/zinc */}
+      <aside className="w-56 shrink-0 bg-[#09090b] border-r border-zinc-900 flex flex-col justify-between p-4 z-20">
         <div>
-          {/* Sidebar Brand Header */}
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-600/30">
-              <span className="text-white font-black text-lg">eK</span>
+          {/* Logo */}
+          <div className="flex items-center gap-2 mb-8 px-2 py-1">
+            <div className="w-6 h-6 bg-red-600 rounded flex items-center justify-center">
+              <span className="text-white font-extrabold text-xs tracking-tighter">eK</span>
             </div>
-            <div>
-              <span className="font-bold text-white block text-sm tracking-tight">INVESTOR</span>
-              <span className="text-[10px] text-zinc-500 uppercase tracking-widest block -mt-1 font-semibold">Dashboard</span>
-            </div>
+            <span className="text-xs font-bold tracking-tight text-white uppercase">
+              Ekyte <span className="text-zinc-600 font-medium">Dash</span>
+            </span>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="space-y-2">
+          {/* Navigation */}
+          <nav className="space-y-1">
             <button
               onClick={() => setActiveTab("overview")}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-xs font-semibold transition-colors ${
                 activeTab === "overview"
-                  ? "bg-red-950/40 text-red-500 border border-red-900/40"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
+                  ? "bg-zinc-900 text-white border border-zinc-800"
+                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/40"
               }`}
             >
-              <BarChart3 className="w-4 h-4" />
+              <BarChart3 className="w-3.5 h-3.5" />
               Visão Geral
             </button>
             <button
               onClick={() => setActiveTab("detailed")}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded text-xs font-semibold transition-colors ${
                 activeTab === "detailed"
-                  ? "bg-red-950/40 text-red-500 border border-red-900/40"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
+                  ? "bg-zinc-900 text-white border border-zinc-800"
+                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/40"
               }`}
             >
-              <FileText className="w-4 h-4" />
+              <FileText className="w-3.5 h-3.5" />
               Relatório Detalhado
             </button>
           </nav>
         </div>
 
-        {/* Sidebar Footer (User info & logout) */}
-        <div className="border-t border-zinc-900 pt-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 bg-zinc-900 rounded-full flex items-center justify-center border border-zinc-800 text-red-500 font-bold text-xs uppercase">
+        {/* User Info Footer */}
+        <div className="border-t border-zinc-900 pt-4 px-2">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="w-7 h-7 bg-zinc-900 rounded-full flex items-center justify-center border border-zinc-850 text-red-500 font-bold text-[10px] uppercase">
               {user?.name.slice(0, 2)}
             </div>
             <div className="truncate">
-              <span className="text-xs font-semibold text-white block truncate">{user?.name}</span>
-              <span className="text-[10px] text-zinc-500 uppercase block truncate">{user?.role === "admin" ? "Administrador" : "Investidor"}</span>
+              <span className="text-[11px] font-semibold text-white block truncate">{user?.name}</span>
+              <span className="text-[9px] text-zinc-500 uppercase block truncate">Gestor Geral</span>
             </div>
           </div>
           <button
             onClick={logout}
-            className="w-full flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-red-950/30 border border-zinc-800 hover:border-red-900/40 text-zinc-400 hover:text-red-400 text-xs font-bold rounded-lg transition-all"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-transparent hover:bg-zinc-900 border border-zinc-900 hover:border-zinc-850 text-zinc-400 hover:text-white text-[10px] font-bold rounded transition-colors"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            Sair do Painel
+            <LogOut className="w-3 h-3" />
+            Sair
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
+      {/* Main Panel */}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Top Header Filter Bar */}
-        <header className="h-20 bg-[#080808]/90 backdrop-filter backdrop-blur-md border-b border-zinc-900 flex items-center justify-between px-8 sticky top-0 z-10">
-          <div className="flex items-center gap-6">
-            <h1 className="text-lg font-bold text-white tracking-tight">
-              {activeTab === "overview" ? "Visão Geral de Performance" : "Extrato e Log de Horas"}
+        {/* Header - Flat border, minimal selectors */}
+        <header className="h-16 bg-black border-b border-zinc-900 flex items-center justify-between px-6 sticky top-0 z-10">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              {activeTab === "overview" ? "Visão Geral" : "Log de Horas"}
             </h1>
 
-            {/* Quick Period Selector */}
-            <div className="flex bg-[#121212] border border-zinc-900 rounded-lg p-0.5 text-xs">
+            {/* Flat Period Controls */}
+            <div className="flex bg-[#09090b] border border-zinc-900 rounded p-0.5 text-[10px]">
               <button
                 onClick={() => setPeriod("current-month")}
-                className={`px-3 py-1.5 rounded-md font-semibold transition-all ${
-                  period === "current-month" ? "bg-red-600 text-white shadow-md" : "text-zinc-400 hover:text-white"
+                className={`px-2.5 py-1 rounded transition-colors font-medium ${
+                  period === "current-month" ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-white"
                 }`}
               >
                 Mês Atual
               </button>
               <button
                 onClick={() => setPeriod("last-30")}
-                className={`px-3 py-1.5 rounded-md font-semibold transition-all ${
-                  period === "last-30" ? "bg-red-600 text-white shadow-md" : "text-zinc-400 hover:text-white"
+                className={`px-2.5 py-1 rounded transition-colors font-medium ${
+                  period === "last-30" ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-white"
                 }`}
               >
-                Últimos 30 Dias
+                30 Dias
               </button>
               <button
                 onClick={() => setPeriod("custom")}
-                className={`px-3 py-1.5 rounded-md font-semibold transition-all ${
-                  period === "custom" ? "bg-red-600 text-white shadow-md" : "text-zinc-400 hover:text-white"
+                className={`px-2.5 py-1 rounded transition-colors font-medium ${
+                  period === "custom" ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-white"
                 }`}
               >
                 Personalizado
@@ -320,38 +327,53 @@ export function DashboardView() {
             </div>
           </div>
 
-          {/* Filters Area */}
-          <div className="flex items-center gap-3">
-            {/* Custom Date Picker Inputs when selected */}
+          {/* Top Level Selectors */}
+          <div className="flex items-center gap-2">
             {period === "custom" && (
-              <div className="flex items-center gap-2 bg-[#0c0c0c] border border-zinc-900 rounded-lg px-2 py-1 text-xs">
-                <Calendar className="w-3.5 h-3.5 text-zinc-500" />
+              <div className="flex items-center gap-1.5 bg-[#09090b] border border-zinc-900 rounded px-2 py-1 text-[10px]">
+                <Calendar className="w-3 h-3 text-zinc-500" />
                 <input
                   type="date"
                   value={customStartDate}
                   onChange={(e) => setCustomStartDate(e.target.value)}
-                  className="bg-transparent text-white border-0 focus:ring-0 w-28 text-[11px]"
+                  className="bg-transparent text-white border-0 w-24 text-[10px]"
                 />
-                <span className="text-zinc-600">até</span>
+                <span className="text-zinc-600">-</span>
                 <input
                   type="date"
                   value={customEndDate}
                   onChange={(e) => setCustomEndDate(e.target.value)}
-                  className="bg-transparent text-white border-0 focus:ring-0 w-28 text-[11px]"
+                  className="bg-transparent text-white border-0 w-24 text-[10px]"
                 />
               </div>
             )}
 
-            {/* Workspace Selector */}
-            <div className="relative flex items-center">
-              <Layers className="w-3.5 h-3.5 text-zinc-500 absolute left-3 pointer-events-none" />
+            {/* Investor Dropdown */}
+            <div className="relative">
+              <User className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
+              <select
+                value={selectedInvestor}
+                onChange={(e) => setSelectedInvestor(e.target.value)}
+                className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-red-500 font-bold appearance-none cursor-pointer"
+              >
+                {INVESTORS_MAPPING.map((inv) => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Workspace Dropdown */}
+            <div className="relative">
+              <Layers className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
               <select
                 value={selectedWorkspace}
                 onChange={(e) => setSelectedWorkspace(e.target.value)}
-                className="pl-9 pr-8 py-2 bg-[#0c0c0c] border border-zinc-900 rounded-lg text-xs text-white focus:outline-none focus:border-red-600 appearance-none"
+                className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-white appearance-none cursor-pointer"
               >
                 <option value="all">Todos os Workspaces</option>
-                {workspacesList.map((ws) => (
+                {activeWorkspacesToFetch.map((ws) => (
                   <option key={ws} value={ws}>
                     {ws}
                   </option>
@@ -359,13 +381,13 @@ export function DashboardView() {
               </select>
             </div>
 
-            {/* Project/Campaign Selector */}
-            <div className="relative flex items-center">
-              <Briefcase className="w-3.5 h-3.5 text-zinc-500 absolute left-3 pointer-events-none" />
+            {/* Project Dropdown */}
+            <div className="relative">
+              <Briefcase className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
               <select
                 value={selectedProject}
                 onChange={(e) => setSelectedProject(e.target.value)}
-                className="pl-9 pr-8 py-2 bg-[#0c0c0c] border border-zinc-900 rounded-lg text-xs text-white focus:outline-none focus:border-red-600 appearance-none"
+                className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-white appearance-none cursor-pointer"
               >
                 <option value="all">Todos os Projetos</option>
                 {projectsList.map((pj) => (
@@ -378,144 +400,117 @@ export function DashboardView() {
           </div>
         </header>
 
-        {/* Dashboard Panels */}
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3">
-            <div className="w-10 h-10 border-4 border-zinc-800 border-t-red-600 rounded-full animate-spin" />
-            <span className="text-sm text-zinc-400 font-medium">Carregando dados da eKyte API...</span>
+          <div className="flex-1 flex flex-col items-center justify-center gap-2.5">
+            <div className="w-6 h-6 border-2 border-zinc-800 border-t-red-650 rounded-full animate-spin" />
+            <span className="text-xs text-zinc-500 font-medium">Carregando da API eKyte...</span>
           </div>
         ) : (
-          <div className="p-8 space-y-8 flex-1">
-            {/* 1. KPI Cards */}
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Total Hours KPI Card */}
-              <div className="glass-panel p-6 rounded-2xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <Clock className="w-24 h-24 text-white" />
-                </div>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Horas Consumidas</span>
-                  <div className="p-2 bg-red-950/40 border border-red-900/30 text-red-500 rounded-lg">
-                    <Clock className="w-4 h-4" />
-                  </div>
+          <div className="p-6 space-y-6 flex-1">
+            {/* 1. KPIs Section */}
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Hours Card */}
+              <div className="premium-card p-5 rounded">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                  <span>Horas Consumidas</span>
+                  <Clock className="w-3.5 h-3.5 text-zinc-500" />
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-extrabold text-white tracking-tight">{totalHours.toFixed(1)}h</span>
-                  <span className={`text-xs font-bold flex items-center gap-0.5 ${simulatedVariation.isNegative ? "text-green-500" : "text-red-500"}`}>
+                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">{totalHours.toFixed(1)}h</span>
+                  <span className={`text-[10px] font-bold ${simulatedVariation.isNegative ? "text-green-500" : "text-red-500"} mono-nums`}>
                     {simulatedVariation.hours}
                   </span>
                 </div>
-                <span className="text-[10px] text-zinc-500 block mt-2">Horas totais registradas no período selecionado.</span>
               </div>
 
-              {/* Estimated Investment KPI Card */}
-              <div className="glass-panel p-6 rounded-2xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <DollarSign className="w-24 h-24 text-white" />
-                </div>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Investimento Estimado</span>
-                  <div className="p-2 bg-red-950/40 border border-red-900/30 text-red-500 rounded-lg">
-                    <DollarSign className="w-4 h-4" />
-                  </div>
+              {/* Investment Card */}
+              <div className="premium-card p-5 rounded">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                  <span>Investimento Estimado</span>
+                  <DollarSign className="w-3.5 h-3.5 text-zinc-500" />
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-extrabold text-white tracking-tight">
+                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">
                     {totalInvestment.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                   </span>
-                  <span className={`text-xs font-bold flex items-center gap-0.5 ${simulatedVariation.isNegative ? "text-green-500" : "text-red-500"}`}>
+                  <span className={`text-[10px] font-bold ${simulatedVariation.isNegative ? "text-green-500" : "text-red-500"} mono-nums`}>
                     {simulatedVariation.cost}
                   </span>
                 </div>
-                <span className="text-[10px] text-zinc-500 block mt-2">Baseado no valor/hora cadastrado por profissional.</span>
               </div>
 
-              {/* Average Cost/Hour KPI Card */}
-              <div className="glass-panel p-6 rounded-2xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <TrendingUp className="w-24 h-24 text-white" />
-                </div>
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Custo Médio da Hora</span>
-                  <div className="p-2 bg-red-950/40 border border-red-900/30 text-red-500 rounded-lg">
-                    <TrendingUp className="w-4 h-4" />
-                  </div>
+              {/* Hourly Rate Card */}
+              <div className="premium-card p-5 rounded">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                  <span>Custo Médio da Hora</span>
+                  <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-extrabold text-white tracking-tight">
+                  <span className="text-2xl font-extrabold text-white tracking-tight mono-nums">
                     {avgCostPerHour.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                   </span>
                 </div>
-                <span className="text-[10px] text-zinc-500 block mt-2">Eficiência operacional calculada por apontamento.</span>
               </div>
             </section>
 
             {activeTab === "overview" ? (
               <>
-                {/* 2. Graphical Reports Section */}
-                <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Bar Chart: Hours by Workspace */}
-                  <div className="glass-panel p-6 rounded-2xl">
-                    <div className="mb-6 flex justify-between items-center">
-                      <div>
-                        <h3 className="font-bold text-white text-sm">Distribuição de Horas por Workspace</h3>
-                        <p className="text-[11px] text-zinc-500 mt-0.5">Diferenciação clara do consumo operacional por cliente/divisão</p>
-                      </div>
+                {/* 2. Charts */}
+                <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Bar Chart */}
+                  <div className="premium-card p-5 rounded">
+                    <div className="mb-4">
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Horas por Workspace</h3>
                     </div>
-                    <div className="h-72">
+                    <div className="h-64">
                       {workspaceChartData.length === 0 ? (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-600 text-xs">Sem dados suficientes no período.</div>
+                        <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">Sem dados.</div>
                       ) : (
                         <ResponsiveContainer width="100%" height="100%">
-                          <ReBarChart data={workspaceChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#18181b" />
-                            <XAxis dataKey="name" stroke="#52525b" fontSize={10} tickLine={false} />
-                            <YAxis stroke="#52525b" fontSize={10} tickLine={false} />
+                          <ReBarChart data={workspaceChartData} margin={{ top: 10, right: 10, left: -30, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="2 2" stroke="#121214" vertical={false} />
+                            <XAxis dataKey="name" stroke="#3f3f46" fontSize={9} tickLine={false} />
+                            <YAxis stroke="#3f3f46" fontSize={9} tickLine={false} />
                             <Tooltip
-                              contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: "8px" }}
+                              contentStyle={{ background: "#09090b", border: "1px solid #18181b", borderRadius: "2px" }}
                               labelClassName="text-white text-xs font-bold"
                               itemStyle={{ color: "#ef4444", fontSize: "11px" }}
                             />
-                            <Bar dataKey="horas" fill="#dc2626" radius={[4, 4, 0, 0]} maxBarSize={45} />
+                            <Bar dataKey="horas" fill="#dc2626" maxBarSize={30} />
                           </ReBarChart>
                         </ResponsiveContainer>
                       )}
                     </div>
                   </div>
 
-                  {/* Line Chart: Daily Consumption Evolution */}
-                  <div className="glass-panel p-6 rounded-2xl">
-                    <div className="mb-6 flex justify-between items-center">
-                      <div>
-                        <h3 className="font-bold text-white text-sm">Evolução do Consumo de Horas</h3>
-                        <p className="text-[11px] text-zinc-500 mt-0.5">Visão diária do consumo operacional ao longo do mês</p>
-                      </div>
+                  {/* Line Chart */}
+                  <div className="premium-card p-5 rounded">
+                    <div className="mb-4">
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Evolução do Consumo</h3>
                     </div>
-                    <div className="h-72">
+                    <div className="h-64">
                       {dailyChartData.length === 0 ? (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-600 text-xs">Sem dados suficientes no período.</div>
+                        <div className="w-full h-full flex items-center justify-center text-zinc-700 text-xs">Sem dados.</div>
                       ) : (
                         <ResponsiveContainer width="100%" height="100%">
-                          <ReLineChart data={dailyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#18181b" />
-                            <XAxis dataKey="date" stroke="#52525b" fontSize={10} tickLine={false} />
-                            <YAxis stroke="#52525b" fontSize={10} tickLine={false} />
+                          <ReLineChart data={dailyChartData} margin={{ top: 10, right: 10, left: -30, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="2 2" stroke="#121214" vertical={false} />
+                            <XAxis dataKey="date" stroke="#3f3f46" fontSize={9} tickLine={false} />
+                            <YAxis stroke="#3f3f46" fontSize={9} tickLine={false} />
                             <Tooltip
-                              contentStyle={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: "8px" }}
+                              contentStyle={{ background: "#09090b", border: "1px solid #18181b", borderRadius: "2px" }}
                               labelClassName="text-white text-xs font-bold"
                               itemStyle={{ fontSize: "11px" }}
                             />
-                            <Legend wrapperStyle={{ fontSize: "10px", marginTop: "10px" }} />
-                            {/* Create dynamic line per workspace or general Total */}
-                            {workspacesList.map((ws, index) => {
-                              // Generates different colors of red/gray for lines
-                              const colors = ["#dc2626", "#f87171", "#7f1d1d", "#ef4444", "#a1a1aa"];
+                            <Legend wrapperStyle={{ fontSize: "9px", marginTop: "10px" }} />
+                            {activeWorkspacesToFetch.map((ws, index) => {
+                              const colors = ["#dc2626", "#a1a1aa", "#7f1d1d", "#ef4444", "#52525b"];
                               const lineColor = colors[index % colors.length];
                               return (
-                                <Line key={ws} type="monotone" dataKey={ws} stroke={lineColor} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                                <Line key={ws} type="monotone" dataKey={ws} stroke={lineColor} strokeWidth={1.5} dot={{ r: 2 }} activeDot={{ r: 4 }} />
                               );
                             })}
-                            <Line type="monotone" dataKey="Total" stroke="#f5f5f7" strokeWidth={1} strokeDasharray="4 4" name="Consumo Total" dot={false} />
+                            <Line type="monotone" dataKey="Total" stroke="#f4f4f5" strokeWidth={1} strokeDasharray="3 3" name="Total" dot={false} />
                           </ReLineChart>
                         </ResponsiveContainer>
                       )}
@@ -523,22 +518,21 @@ export function DashboardView() {
                   </div>
                 </section>
 
-                {/* 3. Paginated Logs Table (Preview at the bottom) */}
-                <section className="glass-panel rounded-2xl overflow-hidden">
-                  <div className="p-6 border-b border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                {/* 3. Paginated logs list */}
+                <section className="premium-card rounded">
+                  <div className="p-4 border-b border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                      <h3 className="font-bold text-white text-sm">Registros Recentes de Atividades</h3>
-                      <p className="text-[11px] text-zinc-500 mt-0.5">Apontamentos de horas processados recentemente</p>
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Histórico de Lançamentos</h3>
                     </div>
-                    {/* Inline Search Bar */}
-                    <div className="relative w-full md:w-72">
-                      <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+                    {/* Minimal Search */}
+                    <div className="relative w-full md:w-64">
+                      <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
                       <input
                         type="text"
-                        placeholder="Buscar por profissional ou tarefa..."
+                        placeholder="Filtrar por profissional ou tarefa..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-[#0d0d0d] border border-zinc-900 rounded-lg pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-red-600 placeholder-zinc-600"
+                        className="w-full bg-[#000000] border border-zinc-900 rounded pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-700 transition-colors"
                       />
                     </div>
                   </div>
@@ -546,37 +540,37 @@ export function DashboardView() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="border-b border-zinc-900 bg-[#090909] text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                          <th className="py-4 px-6">Data</th>
-                          <th className="py-4 px-6">Workspace</th>
-                          <th className="py-4 px-6">Projeto</th>
-                          <th className="py-4 px-6">Tarefa Realizada</th>
-                          <th className="py-4 px-6">Profissional</th>
-                          <th className="py-4 px-6 text-right">Tempo</th>
-                          <th className="py-4 px-6 text-right">Valor Estimado</th>
+                        <tr className="border-b border-zinc-900 bg-black text-[9px] uppercase font-bold text-zinc-500 tracking-wider">
+                          <th className="py-3 px-4">Data</th>
+                          <th className="py-3 px-4">Workspace</th>
+                          <th className="py-3 px-4">Projeto</th>
+                          <th className="py-3 px-4">Tarefa</th>
+                          <th className="py-3 px-4">Profissional</th>
+                          <th className="py-3 px-4 text-right">Horas</th>
+                          <th className="py-3 px-4 text-right">Investimento</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-zinc-900/50 text-xs">
+                      <tbody className="divide-y divide-zinc-900/50 text-[11px]">
                         {paginatedLogs.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="py-8 text-center text-zinc-600">Nenhum apontamento encontrado para os filtros selecionados.</td>
+                            <td colSpan={7} className="py-8 text-center text-zinc-600">Nenhum apontamento.</td>
                           </tr>
                         ) : (
                           paginatedLogs.map((log) => (
-                            <tr key={log.id} className="hover:bg-zinc-900/20 transition-colors">
-                              <td className="py-3.5 px-6 font-medium text-zinc-400">
+                            <tr key={log.id} className="hover:bg-zinc-950 transition-colors">
+                              <td className="py-2.5 px-4 text-zinc-500 mono-nums">
                                 {new Date(log.date).toLocaleDateString("pt-BR")}
                               </td>
-                              <td className="py-3.5 px-6 font-semibold text-red-400">{log.workspace}</td>
-                              <td className="py-3.5 px-6">
-                                <span className="bg-zinc-900 text-zinc-300 border border-zinc-800 text-[10px] px-2.5 py-0.5 rounded-full font-medium">
+                              <td className="py-2.5 px-4 font-semibold text-red-500">{log.workspace}</td>
+                              <td className="py-2.5 px-4">
+                                <span className="bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px] px-2 py-0.5 rounded font-medium">
                                   {log.project}
                                 </span>
                               </td>
-                              <td className="py-3.5 px-6 font-medium text-white max-w-xs truncate">{log.task}</td>
-                              <td className="py-3.5 px-6 text-zinc-300 font-medium">{log.professional}</td>
-                              <td className="py-3.5 px-6 text-right text-white font-bold">{log.hours.toFixed(1)}h</td>
-                              <td className="py-3.5 px-6 text-right font-semibold text-green-500">
+                              <td className="py-2.5 px-4 text-zinc-300 max-w-xs truncate">{log.task}</td>
+                              <td className="py-2.5 px-4 text-zinc-400">{log.professional}</td>
+                              <td className="py-2.5 px-4 text-right font-bold text-white mono-nums">{log.hours.toFixed(1)}h</td>
+                              <td className="py-2.5 px-4 text-right font-semibold text-green-500 mono-nums">
                                 {(log.hours * log.costPerHour).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                               </td>
                             </tr>
@@ -586,29 +580,29 @@ export function DashboardView() {
                     </table>
                   </div>
 
-                  {/* Pagination Footer */}
+                  {/* Table Footer */}
                   {totalPages > 1 && (
-                    <div className="p-4 border-t border-zinc-900 bg-[#080808] flex items-center justify-between">
-                      <span className="text-[11px] text-zinc-500">
+                    <div className="p-3 bg-black flex items-center justify-between border-t border-zinc-900">
+                      <span className="text-[10px] text-zinc-500">
                         Mostrando <span className="font-semibold text-white">{paginatedLogs.length}</span> de <span className="font-semibold text-white">{filteredLogs.length}</span> registros
                       </span>
                       <div className="flex gap-2">
                         <button
                           onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                           disabled={currentPage === 1}
-                          className="p-1.5 bg-[#0d0d0d] hover:bg-zinc-900 border border-zinc-850 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-all"
+                          className="p-1 bg-[#09090b] hover:bg-zinc-900 border border-zinc-900 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
                         >
-                          <ChevronLeft className="w-4 h-4" />
+                          <ChevronLeft className="w-3.5 h-3.5" />
                         </button>
-                        <span className="text-xs flex items-center px-3 text-zinc-400 font-semibold">
+                        <span className="text-[10px] flex items-center px-2 text-zinc-400 font-semibold">
                           Página {currentPage} de {totalPages}
                         </span>
                         <button
                           onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                           disabled={currentPage === totalPages}
-                          className="p-1.5 bg-[#0d0d0d] hover:bg-zinc-900 border border-zinc-850 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-all"
+                          className="p-1 bg-[#09090b] hover:bg-zinc-900 border border-zinc-900 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
                         >
-                          <ChevronRight className="w-4 h-4" />
+                          <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -616,21 +610,20 @@ export function DashboardView() {
                 </section>
               </>
             ) : (
-              /* Detailed Table view tab */
-              <section className="glass-panel rounded-2xl overflow-hidden">
-                <div className="p-6 border-b border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              /* Detailed Table View Tab */
+              <section className="premium-card rounded">
+                <div className="p-4 border-b border-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <h3 className="font-bold text-white text-sm font-semibold text-white">Extrato Consolidado e Filtrado</h3>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">Analise cada apontamento de forma individual com dados financeiros</p>
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">Log Detalhado Consolidado</h3>
                   </div>
-                  <div className="relative w-full md:w-72">
-                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+                  <div className="relative w-full md:w-64">
+                    <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
                     <input
                       type="text"
-                      placeholder="Filtrar profissionais ou tarefas..."
+                      placeholder="Filtrar lançamentos..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-[#0d0d0d] border border-zinc-900 rounded-lg pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-red-600 placeholder-zinc-600"
+                      className="w-full bg-[#000000] border border-zinc-900 rounded pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-700 transition-colors"
                     />
                   </div>
                 </div>
@@ -638,39 +631,39 @@ export function DashboardView() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-zinc-900 bg-[#090909] text-[10px] uppercase font-bold text-zinc-400 tracking-wider">
-                        <th className="py-4 px-6">ID</th>
-                        <th className="py-4 px-6">Data</th>
-                        <th className="py-4 px-6">Workspace</th>
-                        <th className="py-4 px-6">Projeto</th>
-                        <th className="py-4 px-6">Atividade</th>
-                        <th className="py-4 px-6">Colaborador</th>
-                        <th className="py-4 px-6 text-right">Taxa/Hora</th>
-                        <th className="py-4 px-6 text-right">Horas</th>
-                        <th className="py-4 px-6 text-right">Total Investido</th>
+                      <tr className="border-b border-zinc-900 bg-black text-[9px] uppercase font-bold text-zinc-500 tracking-wider">
+                        <th className="py-3 px-4">ID</th>
+                        <th className="py-3 px-4">Data</th>
+                        <th className="py-3 px-4">Workspace</th>
+                        <th className="py-3 px-4">Projeto</th>
+                        <th className="py-3 px-4">Atividade</th>
+                        <th className="py-3 px-4">Colaborador</th>
+                        <th className="py-3 px-4 text-right">Taxa/Hora</th>
+                        <th className="py-3 px-4 text-right">Horas</th>
+                        <th className="py-3 px-4 text-right">Total</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-zinc-900/50 text-xs">
+                    <tbody className="divide-y divide-zinc-900/50 text-[11px]">
                       {paginatedLogs.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="py-8 text-center text-zinc-600">Nenhum apontamento correspondente.</td>
+                          <td colSpan={9} className="py-8 text-center text-zinc-600">Nenhum apontamento.</td>
                         </tr>
                       ) : (
                         paginatedLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-zinc-900/20 transition-colors">
-                            <td className="py-3.5 px-6 font-medium text-zinc-650">#{log.id}</td>
-                            <td className="py-3.5 px-6 font-medium text-zinc-450">
+                          <tr key={log.id} className="hover:bg-zinc-950 transition-colors">
+                            <td className="py-2.5 px-4 text-zinc-650 mono-nums">#{log.id}</td>
+                            <td className="py-2.5 px-4 text-zinc-500 mono-nums">
                               {new Date(log.date).toLocaleDateString("pt-BR")}
                             </td>
-                            <td className="py-3.5 px-6 font-semibold text-red-500">{log.workspace}</td>
-                            <td className="py-3.5 px-6 text-zinc-300 font-semibold">{log.project}</td>
-                            <td className="py-3.5 px-6 font-medium text-white max-w-sm truncate">{log.task}</td>
-                            <td className="py-3.5 px-6 text-zinc-400 font-medium">{log.professional}</td>
-                            <td className="py-3.5 px-6 text-right text-zinc-450">
+                            <td className="py-2.5 px-4 font-semibold text-red-500">{log.workspace}</td>
+                            <td className="py-2.5 px-4 text-zinc-400 font-semibold">{log.project}</td>
+                            <td className="py-2.5 px-4 text-zinc-350 max-w-sm truncate">{log.task}</td>
+                            <td className="py-2.5 px-4 text-zinc-400">{log.professional}</td>
+                            <td className="py-2.5 px-4 text-right text-zinc-500 mono-nums">
                               {log.costPerHour.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                             </td>
-                            <td className="py-3.5 px-6 text-right text-white font-bold">{log.hours.toFixed(1)}h</td>
-                            <td className="py-3.5 px-6 text-right font-bold text-green-500">
+                            <td className="py-2.5 px-4 text-right text-white font-bold mono-nums">{log.hours.toFixed(1)}h</td>
+                            <td className="py-2.5 px-4 text-right font-bold text-green-500 mono-nums">
                               {(log.hours * log.costPerHour).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                             </td>
                           </tr>
@@ -680,29 +673,29 @@ export function DashboardView() {
                   </table>
                 </div>
 
-                {/* Pagination Footer */}
+                {/* Table Footer */}
                 {totalPages > 1 && (
-                  <div className="p-4 border-t border-zinc-900 bg-[#080808] flex items-center justify-between">
-                    <span className="text-[11px] text-zinc-500">
+                  <div className="p-3 bg-black flex items-center justify-between border-t border-zinc-900">
+                    <span className="text-[10px] text-zinc-500">
                       Exibindo <span className="font-semibold text-white">{paginatedLogs.length}</span> de <span className="font-semibold text-white">{filteredLogs.length}</span> registros
                     </span>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
-                        className="p-1.5 bg-[#0d0d0d] hover:bg-zinc-900 border border-zinc-850 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-all"
+                        className="p-1 bg-[#09090b] hover:bg-zinc-900 border border-zinc-900 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
                       >
-                        <ChevronLeft className="w-4 h-4" />
+                        <ChevronLeft className="w-3.5 h-3.5" />
                       </button>
-                      <span className="text-xs flex items-center px-3 text-zinc-400 font-semibold">
+                      <span className="text-[10px] flex items-center px-2 text-zinc-400 font-semibold">
                         Página {currentPage} de {totalPages}
                       </span>
                       <button
                         onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
-                        className="p-1.5 bg-[#0d0d0d] hover:bg-zinc-900 border border-zinc-850 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-all"
+                        className="p-1 bg-[#09090b] hover:bg-zinc-900 border border-zinc-900 rounded text-zinc-400 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-colors"
                       >
-                        <ChevronRight className="w-4 h-4" />
+                        <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
