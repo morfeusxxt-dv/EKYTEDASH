@@ -665,9 +665,12 @@ export function DashboardView() {
                       {/* Tabela */}
                       <div className="mt-4">
                         <table className="v4-table">
-                          <thead><tr><th>#</th><th>Workspace</th><th>Tipo</th><th>Executores</th><th>Fee Mensal</th><th style={{ textAlign: "right" }}>Horas</th></tr></thead>
+                          <thead><tr><th>#</th><th>Workspace</th><th>Tipo</th><th>Executores</th><th>Fee Mensal</th><th style={{ textAlign: "right" }}>Horas</th><th style={{ textAlign: "right" }}>R$/h</th></tr></thead>
                           <tbody>
-                            {wsTotals.map((w, i) => (
+                            {wsTotals.map((w, i) => {
+                              const horas = w.min / 60;
+                              const rsHora = (w.fee > 0 && horas > 0) ? (w.fee / horas) : 0;
+                              return (
                               <tr key={w.nome}>
                                 <td><span style={{ fontFamily: "Montserrat", fontWeight: 700, color: i === 0 ? "var(--red)" : "var(--muted)" }}>{i + 1}</span></td>
                                 <td style={{ fontWeight: 600, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={w.nome}>{w.nome}</td>
@@ -675,8 +678,9 @@ export function DashboardView() {
                                 <td style={{ color: "var(--muted)" }}>{w.execs}</td>
                                 <td style={{ color: "var(--off-white)", fontWeight: 500 }}>{w.fee ? `R$ ${w.fee.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` : "—"}</td>
                                 <td className="num">{fmtH(w.min)}h</td>
+                                <td style={{ textAlign: "right", color: rsHora > 0 ? "var(--green)" : "var(--muted)", fontWeight: 500 }}>{rsHora > 0 ? `R$ ${rsHora.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : "—"}</td>
                               </tr>
-                            ))}
+                            )})}
                           </tbody>
                         </table>
                       </div>

@@ -142,6 +142,9 @@ export async function GET(request: Request) {
       4: "Quinta", 5: "Sexta", 6: "Sábado"
     };
 
+    // Cache local para otimizar busca de squad/fee por workspace
+    const workspaceMapCache = new Map<string, { squad: string, investidor: string, fee: number }>();
+
     // Mapeia o payload da API REST do eKyte para o formato esperado pelo Frontend
     let rawData = list.map((item: any) => {
       const email = usersEmailMap.get(item.executorId) || "Desconhecido";
@@ -152,9 +155,42 @@ export async function GET(request: Request) {
       const interno = /INTERNO/i.test(workspaceName);
       
       const wsLower = workspaceName.toLowerCase();
-      const squad = clientesSquadMap.get(wsLower) || "Sem Squad";
-      const investidor = clientesInvestidorMap.get(wsLower) || "Sem Investidor";
-      const fee = clientesFeeMap.get(wsLower) || 0;
+      
+      let squad = "Sem Squad";
+      let investidor = "Sem Investidor";
+      let fee = 0;
+
+      if (workspaceMapCache.has(wsLower)) {
+        const cached = workspaceMapCache.get(wsLower)!;
+        squad = cached.squad;
+        investidor = cached.investidor;
+        fee = cached.fee;
+      } else {
+        // Tenta match exato primeiro
+        squad = clientesSquadMap.get(wsLower) || "";
+        investidor = clientesInvestidorMap.get(wsLower) || "";
+        fee = clientesFeeMap.get(wsLower) || 0;
+
+        // Match parcial caso nome do eKyte contenha prefixos (ex: "V4 | Cliente XYZ")
+        if (!squad) {
+          let found = false;
+          for (const nomeCliente of clientesSquadMap.keys()) {
+            if (nomeCliente.length >= 3 && (wsLower.includes(nomeCliente) || nomeCliente.includes(wsLower))) {
+              squad = clientesSquadMap.get(nomeCliente) || "Sem Squad";
+              investidor = clientesInvestidorMap.get(nomeCliente) || "Sem Investidor";
+              fee = clientesFeeMap.get(nomeCliente) || 0;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            squad = "Sem Squad";
+            investidor = "Sem Investidor";
+            fee = 0;
+          }
+        }
+        workspaceMapCache.set(wsLower, { squad, investidor, fee });
+      }
 
       // Campos de data/hora derivados
       const dateStr = item.startDate ? item.startDate.split("T")[0] : "";
