@@ -6,7 +6,8 @@ export async function GET(request: Request) {
     const projectFilter = searchParams.get("project");
     const startDateParam = searchParams.get("startDate");
     const endDateParam = searchParams.get("endDate");
-    const professionalFilter = searchParams.get("professional");
+    const professionalFilter = searchParams.get("professional"); // E-mail
+    const executorIdParam = searchParams.get("executorId"); // ID do eKyte
 
     const apiToken = process.env.EKYTE_API_TOKEN;
     const apiUrl = process.env.EKYTE_API_URL;
@@ -17,6 +18,17 @@ export async function GET(request: Request) {
         error: "Credenciais da API do eKyte não configuradas. Preencha EKYTE_API_TOKEN e EKYTE_API_URL.",
         debugInfo: { apiTokenSet: !!apiToken, apiUrlSet: !!apiUrl }
       }, { status: 400 });
+    }
+
+    // Prepara os argumentos para a chamada da ferramenta MCP
+    const args: any = {
+      startDate: startDateParam || "2026-07-01",
+      endDate: endDateParam || "2026-07-31"
+    };
+
+    // Filtro direto de executor por ID no eKyte
+    if (executorIdParam && executorIdParam !== "all") {
+      args.executorId = executorIdParam;
     }
 
     // Faz a chamada ao Servidor MCP do eKyte via JSON-RPC
@@ -30,10 +42,7 @@ export async function GET(request: Request) {
         method: "tools/call",
         params: {
           name: "list_time_trackings",
-          arguments: {
-            startDate: startDateParam || "2026-07-01",
-            endDate: endDateParam || "2026-07-31"
-          }
+          arguments: args
         },
         id: 1
       })
@@ -49,7 +58,6 @@ export async function GET(request: Request) {
 
     const resJson = await response.json();
 
-    // Tratamento de erro do próprio JSON-RPC
     if (resJson.error) {
       return NextResponse.json({
         error: "O eKyte MCP retornou um erro interno no processamento do JSON-RPC.",
@@ -78,7 +86,7 @@ export async function GET(request: Request) {
       project: item.ctcTaskType?.name || "Outros"
     }));
 
-    // Filtra pelo Profissional/Investidor selecionado (e-mail)
+    // Filtro redundante local de segurança pelo e-mail
     if (professionalFilter && professionalFilter !== "all") {
       rawData = rawData.filter((item: any) => item.professional === professionalFilter);
     }

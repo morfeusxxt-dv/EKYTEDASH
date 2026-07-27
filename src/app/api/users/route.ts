@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server";
 
-const MOCK_USERS = [
-  { email: "lian.garras@v4company.com", name: "Lian Garras" },
-  { email: "carlos.silva@v4company.com", name: "Carlos Silva" },
-  { email: "mariana.souza@v4company.com", name: "Mariana Souza" },
-];
-
 export async function GET() {
   try {
     const apiToken = process.env.EKYTE_API_TOKEN;
     const apiUrl = process.env.EKYTE_API_URL;
 
-    // Se não estiver configurado, retorna os mocks
+    // Se não estiver configurado, retorna erro explicativo
     if (!apiToken || apiToken === "seu_token_aqui" || !apiUrl) {
-      return NextResponse.json({ data: MOCK_USERS });
+      return NextResponse.json({ 
+        error: "Credenciais do eKyte não configuradas nas variáveis de ambiente." 
+      }, { status: 400 });
     }
 
     // Chamada MCP para listar todos os usuários da empresa
@@ -33,28 +29,47 @@ export async function GET() {
       })
     });
 
-    if (response.ok) {
-      const resJson = await response.json();
-      const rawText = resJson.result?.content?.[0]?.text;
-      if (rawText) {
-        const usersList = JSON.parse(rawText);
-        // Filtra apenas usuários que possuem email e remove duplicatas
-        const mappedUsers = usersList
-          .filter((u: any) => u.email)
-          .map((u: any) => ({
-            email: u.email,
-            name: u.userName || u.email.split("@")[0]
-          }))
-          .sort((a: any, b: any) => a.email.localeCompare(b.email));
-        return NextResponse.json({ data: mappedUsers });
-      }
+    if (!response.ok) {
+      const errText = await response.text();
+      return NextResponse.json({
+        error: `O Servidor MCP do eKyte retornou erro: ${response.status}`,
+        details: errText
+      }, { status: response.status });
     }
 
-    // Em caso de erro na API do MCP, retorna os dados de mock como segurança
-    console.warn("Erro ao ler list_all_users_with_profile do MCP. Usando fallback.");
-    return NextResponse.json({ data: MOCK_USERS });
+    const resJson = await response.json();
+
+    if (resJson.error) {
+      return NextResponse.json({
+        error: "Erro do eKyte MCP ao listar usuários com perfil.",
+        details: resJson.error
+      }, { status: 400 });
+    }
+
+    const rawText = resJson.result?.content?.[0]?.text;
+    if (!rawText) {
+      return NextResponse.json({
+        error: "Nenhum usuário retornado no payload do eKyte MCP."
+      }, { status: 404 });
+    }
+
+    const usersList = JSON.parse(rawText);
+    // Mapeia os usuários mantendo o ID interno do eKyte para consultas de esforço
+    const mappedUsers = usersList
+      .filter((u: any) => u.email)
+      .map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        name: u.userName || u.email.split("@")[0]
+      }))
+      .sort((a: any, b: any) => a.email.localeCompare(b.email));
+
+    return NextResponse.json({ data: mappedUsers });
   } catch (error: any) {
     console.error("Erro na rota /api/users:", error);
-    return NextResponse.json({ data: MOCK_USERS });
+    return NextResponse.json({
+      error: "Erro interno no servidor ao listar usuários.",
+      details: error.message
+    }, { status: 500 });
   }
 }

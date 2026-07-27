@@ -51,8 +51,8 @@ export function DashboardView() {
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Lista de todos os usuários cadastrados na empresa (carregados do eKyte MCP)
-  const [allUsers, setAllUsers] = useState<{ email: string; name: string }[]>([]);
+  // Lista de todos os usuários cadastrados na empresa (carregados do eKyte MCP com ID)
+  const [allUsers, setAllUsers] = useState<{ id: string; email: string; name: string }[]>([]);
 
   // Dados carregados do Backend (Proxy API)
   const [logs, setLogs] = useState<HourLog[]>([]);
@@ -89,6 +89,15 @@ export function DashboardView() {
         const queryParams = new URLSearchParams();
         // Carrega todos os workspaces associados
         queryParams.append("workspaces", user.workspaces.join(","));
+
+        // Importante: Se selecionou um profissional, buscamos o ID dele para enviar no query param
+        if (selectedInvestor !== "all") {
+          const matchedUser = allUsers.find(u => u.email === selectedInvestor);
+          if (matchedUser && matchedUser.id) {
+            queryParams.append("executorId", matchedUser.id);
+          }
+          queryParams.append("professional", selectedInvestor);
+        }
 
         if (selectedProject !== "all") {
           queryParams.append("project", selectedProject);
@@ -133,9 +142,9 @@ export function DashboardView() {
       }
     }
     fetchData();
-  }, [user, period, selectedProject, customStartDate, customEndDate]);
+  }, [user, period, selectedProject, customStartDate, customEndDate, selectedInvestor, allUsers]);
 
-  // Filtros aplicados no cliente
+  // Filtros locais aplicados no cliente
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
       const matchInvestor = selectedInvestor === "all" || log.professional === selectedInvestor;
