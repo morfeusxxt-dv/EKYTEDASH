@@ -59,7 +59,7 @@ export function DashboardView() {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
 
   // Filtros
-  const [period, setPeriod] = useState<"current-month" | "last-30" | "custom">("current-month");
+  const [period, setPeriod] = useState<"current-month" | "last-30" | "last-7" | "custom">("current-month");
   const [selectedInvestor, setSelectedInvestor] = useState<string>("all");
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("all");
   const [selectedSquad, setSelectedSquad] = useState<string>("all");
@@ -100,15 +100,26 @@ export function DashboardView() {
       qp.append("professional", selectedInvestor);
     }
 
+    const fmtDate = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
     const now = new Date();
     let start = "", end = "";
     if (period === "current-month") {
-      start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-      end   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+      start = fmtDate(new Date(now.getFullYear(), now.getMonth(), 1));
+      end   = fmtDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
     } else if (period === "last-30") {
       const d = new Date(); d.setDate(now.getDate() - 30);
-      start = d.toISOString().split("T")[0];
-      end   = now.toISOString().split("T")[0];
+      start = fmtDate(d);
+      end   = fmtDate(now);
+    } else if (period === "last-7") {
+      const d = new Date(); d.setDate(now.getDate() - 7);
+      start = fmtDate(d);
+      end   = fmtDate(now);
     } else if (period === "custom" && customStartDate && customEndDate) {
       start = customStartDate; end = customEndDate;
     }
@@ -378,13 +389,13 @@ export function DashboardView() {
         <header className="min-h-14 flex items-center justify-between px-5 py-2 shrink-0 border-b flex-wrap gap-2" style={{ background: "var(--background)", borderColor: "var(--border)" }}>
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex rounded overflow-hidden border text-[10px]" style={{ borderColor: "var(--border)" }}>
-              {(["current-month", "last-30", "custom"] as const).map((p, i) => (
+              {(["current-month", "last-30", "last-7", "custom"] as const).map((p, i) => (
                 <button key={p} onClick={() => setPeriod(p)} className="px-3 py-1.5 font-semibold transition-colors" style={{
                   background: period === p ? "var(--card)" : "transparent",
                   color: period === p ? "var(--off-white)" : "var(--muted)",
                   borderLeft: i > 0 ? "1px solid var(--border)" : "none"
                 }}>
-                  {p === "current-month" ? "Mês Atual" : p === "last-30" ? "30 Dias" : "Período"}
+                  {p === "current-month" ? "Mês Atual" : p === "last-30" ? "30 Dias" : p === "last-7" ? "7 Dias" : "Período"}
                 </button>
               ))}
             </div>

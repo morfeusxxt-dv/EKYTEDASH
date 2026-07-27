@@ -189,6 +189,9 @@ body {
   font-weight: 600;
   color: var(--off-white);
   font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hcell.colhead {
   font-family: 'Inter', sans-serif;
