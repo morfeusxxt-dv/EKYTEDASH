@@ -10,48 +10,59 @@ export async function GET(request: Request) {
     const executorIdParam = searchParams.get("executorId"); // ID do eKyte
 
     const apiToken = process.env.EKYTE_API_TOKEN;
-    const apiUrl = process.env.EKYTE_API_URL;
+    const apiUrl = process.env.EKYTE_API_URL || "https://api.ekyte.com";
+    const companyId = process.env.EKYTE_COMPANY_ID || "9396";
 
     // Se as credenciais do eKyte não estiverem configuradas no ambiente
-    if (!apiToken || apiToken === "seu_token_aqui" || !apiUrl) {
+    if (!apiToken || apiToken === "seu_token_aqui") {
       return NextResponse.json({
-        error: "Credenciais da API do eKyte não configuradas. Preencha EKYTE_API_TOKEN e EKYTE_API_URL.",
-        debugInfo: { apiTokenSet: !!apiToken, apiUrlSet: !!apiUrl }
+        error: "Credenciais da API do eKyte não configuradas. Preencha EKYTE_API_TOKEN nas configurações da Vercel.",
       }, { status: 400 });
     }
 
-    // Prepara os argumentos para a chamada da ferramenta MCP
-    const args: any = {
-      startDate: startDateParam || "2026-07-01",
-      endDate: endDateParam || "2026-07-31"
-    };
-
-    // Filtro direto de executor por ID no eKyte
-    if (executorIdParam && executorIdParam !== "all") {
-      args.executorId = executorIdParam;
+    // 1. Busca a lista de usuários em paralelo para mapear executorId -> email
+    const usersRes = await fetch(`${apiUrl}/v1.0/users?apiKey=${apiToken}&companyId=${companyId}`);
+    const usersMap = new Map<string, string>();
+    if (usersRes.ok) {
+      const usersJson = await usersRes.json();
+      if (usersJson.data && Array.isArray(usersJson.data)) {
+        usersJson.data.forEach((u: any) => {
+          if (u.id && u.email) {
+            usersMap.set(u.id, u.email);
+          }
+        });
+      }
     }
 
-    // Faz a chamada ao Servidor MCP do eKyte via JSON-RPC
-    const response = await fetch(`${apiUrl}/mcp?token=${apiToken}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: {
-          name: "list_time_trackings",
-          arguments: args
-        },
-        id: 1
-      })
-    });
+    // 2. Prepara a URL com query params da API REST do eKyte v1.0
+    const queryParams = new URLSearchParams();
+    queryParams.append("apiKey", apiToken);
+
+    // Converte os filtros de período para createdFrom / createdTo recomendados pelo eKyte
+    if (startDateParam) {
+      queryParams.append("createdFrom", startDateParam);
+    } else {
+      queryParams.append("createdFrom", "2026-07-01");
+    }
+
+    if (endDateParam) {
+      queryParams.append("createdTo", endDateParam);
+    } else {
+      queryParams.append("createdTo", "2026-07-31");
+    }
+
+    // Filtro direto por ID no eKyte se selecionado
+    if (executorIdParam && executorIdParam !== "all") {
+      queryParams.append("executorId", executorIdParam);
+    }
+
+    // Faz a consulta direta de apontamentos na API REST
+    const response = await fetch(`${apiUrl}/v1.0/time-trackings?${queryParams.toString()}`);
 
     if (!response.ok) {
       const errText = await response.text();
       return NextResponse.json({
-        error: `O Servidor MCP do eKyte retornou erro: ${response.status}`,
+        error: `A API de apontamentos do eKyte retornou erro: ${response.status}`,
         details: errText
       }, { status: response.status });
     }
@@ -60,31 +71,26 @@ export async function GET(request: Request) {
 
     if (resJson.error) {
       return NextResponse.json({
-        error: "O eKyte MCP retornou um erro interno no processamento do JSON-RPC.",
+        error: "A API do eKyte retornou um erro interno ao ler os apontamentos.",
         details: resJson.error
       }, { status: 400 });
     }
 
-    const rawText = resJson.result?.content?.[0]?.text;
-    if (!rawText) {
-      return NextResponse.json({
-        error: "Nenhum dado retornado no payload do eKyte MCP.",
-        response: resJson
-      }, { status: 404 });
-    }
+    const list = resJson.data || [];
 
-    const list = JSON.parse(rawText);
-
-    // Mapeia o payload oficial do eKyte para o formato do Frontend
-    let rawData = list.map((item: any) => ({
-      id: String(item.id),
-      date: item.startDate ? item.startDate.split("T")[0] : "",
-      task: item.ctcTask?.title || item.comment || "Atividade Operacional",
-      professional: item.executor?.email || item.createdBy?.email || "Desconhecido",
-      hours: (item.effort || 0) / 60,
-      workspace: item.workspace?.name || "Geral",
-      project: item.ctcTaskType?.name || "Outros"
-    }));
+    // Mapeia o payload da API REST do eKyte para o formato esperado pelo Frontend
+    let rawData = list.map((item: any) => {
+      const matchedEmail = usersMap.get(item.executorId) || "Desconhecido";
+      return {
+        id: String(item.id),
+        date: item.startDate ? item.startDate.split("T")[0] : "",
+        task: item.ctcTask || item.comment || "Atividade Operacional",
+        professional: matchedEmail, // Mapeado dinamicamente para o e-mail cadastrado
+        hours: (item.effort || 0) / 60,
+        workspace: item.workspace || "Geral",
+        project: item.ctcTaskType || "Outros"
+      };
+    });
 
     // Filtro redundante local de segurança pelo e-mail
     if (professionalFilter && professionalFilter !== "all") {
@@ -94,16 +100,6 @@ export async function GET(request: Request) {
     // Filtro adicional por Projeto se fornecido
     if (projectFilter && projectFilter !== "Todos" && projectFilter !== "all") {
       rawData = rawData.filter((item: any) => item.project === projectFilter);
-    }
-
-    // Filtro adicional por período
-    if (startDateParam && endDateParam) {
-      const start = new Date(startDateParam);
-      const end = new Date(endDateParam);
-      rawData = rawData.filter((item: any) => {
-        const itemDate = new Date(item.date);
-        return itemDate >= start && itemDate <= end;
-      });
     }
 
     return NextResponse.json({ data: rawData });

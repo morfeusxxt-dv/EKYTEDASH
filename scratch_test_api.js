@@ -1,27 +1,11 @@
 async function test() {
+  const token = "ab6c6829116292f376c83d3f01f118f8034846a53e2e159fe01677934f6f71b4";
   try {
-    const res = await fetch("https://api.ekyte.com/mcp?token=580bff701f8076e71dfa99773c9d77e48c4e91833b2ebc9b4a5e713f57de0f18", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: {
-          name: "list_all_users_with_profile",
-          arguments: {}
-        },
-        id: 1
-      })
-    });
+    const res = await fetch(`https://api.ekyte.com/v1.0/workspaces?apiKey=${token}`);
     console.log("Status:", res.status);
     const json = await res.json();
-    if (json.result && json.result.content) {
-      const content = json.result.content[0].text;
-      console.log("Content snippet:", content.slice(0, 1000));
-    } else {
-      console.log("Response:", JSON.stringify(json, null, 2));
+    if (json.data && json.data.length > 0) {
+      console.log("First workspace:", JSON.stringify(json.data[0], null, 2));
     }
   } catch (err) {
     console.error("Error:", err);

@@ -3,36 +3,22 @@ import { NextResponse } from "next/server";
 export async function GET() {
   try {
     const apiToken = process.env.EKYTE_API_TOKEN;
-    const apiUrl = process.env.EKYTE_API_URL;
+    const apiUrl = process.env.EKYTE_API_URL || "https://api.ekyte.com";
+    const companyId = process.env.EKYTE_COMPANY_ID || "9396";
 
-    // Se não estiver configurado, retorna erro explicativo
-    if (!apiToken || apiToken === "seu_token_aqui" || !apiUrl) {
+    if (!apiToken || apiToken === "seu_token_aqui") {
       return NextResponse.json({ 
-        error: "Credenciais do eKyte não configuradas nas variáveis de ambiente." 
+        error: "Credenciais do eKyte não configuradas nas variáveis de ambiente. Defina EKYTE_API_TOKEN." 
       }, { status: 400 });
     }
 
-    // Chamada MCP para listar todos os usuários da empresa
-    const response = await fetch(`${apiUrl}/mcp?token=${apiToken}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: {
-          name: "list_all_users_with_profile",
-          arguments: {}
-        },
-        id: 1
-      })
-    });
+    // Consulta direta à API REST nativa do eKyte v1.0
+    const response = await fetch(`${apiUrl}/v1.0/users?apiKey=${apiToken}&companyId=${companyId}`);
 
     if (!response.ok) {
       const errText = await response.text();
       return NextResponse.json({
-        error: `O Servidor MCP do eKyte retornou erro: ${response.status}`,
+        error: `A API do eKyte retornou erro ao listar usuários: ${response.status}`,
         details: errText
       }, { status: response.status });
     }
@@ -41,26 +27,18 @@ export async function GET() {
 
     if (resJson.error) {
       return NextResponse.json({
-        error: "Erro do eKyte MCP ao listar usuários com perfil.",
+        error: "Erro retornado pela API do eKyte ao consultar usuários.",
         details: resJson.error
       }, { status: 400 });
     }
 
-    const rawText = resJson.result?.content?.[0]?.text;
-    if (!rawText) {
-      return NextResponse.json({
-        error: "Nenhum usuário retornado no payload do eKyte MCP."
-      }, { status: 404 });
-    }
-
-    const usersList = JSON.parse(rawText);
-    // Mapeia os usuários mantendo o ID interno do eKyte para consultas de esforço
+    const usersList = resJson.data || [];
     const mappedUsers = usersList
       .filter((u: any) => u.email)
       .map((u: any) => ({
         id: u.id,
         email: u.email,
-        name: u.userName || u.email.split("@")[0]
+        name: u.username || u.name || u.email.split("@")[0]
       }))
       .sort((a: any, b: any) => a.email.localeCompare(b.email));
 
