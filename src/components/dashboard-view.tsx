@@ -38,20 +38,13 @@ interface HourLog {
   project: string;
 }
 
-// Lista de Investidores / Profissionais disponíveis
-const INVESTORS_LIST = [
-  { email: "lian.garras@v4company.com", name: "Lian Garras" },
-  { email: "carlos.silva@v4company.com", name: "Carlos Silva" },
-  { email: "mariana.souza@v4company.com", name: "Mariana Souza" },
-];
-
 export function DashboardView() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<"overview" | "detailed">("overview");
 
   // Filtros principais
   const [period, setPeriod] = useState<"current-month" | "last-30" | "custom">("current-month");
-  const [selectedInvestor, setSelectedInvestor] = useState<string>("lian.garras@v4company.com"); // Lian Garras padrão
+  const [selectedInvestor, setSelectedInvestor] = useState<string>("all"); // Default: Todos
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("all");
   const [selectedProject, setSelectedProject] = useState<string>("all");
   const [customStartDate, setCustomStartDate] = useState<string>("");
@@ -61,22 +54,22 @@ export function DashboardView() {
   // Dados carregados do Backend (Proxy API)
   const [logs, setLogs] = useState<HourLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Paginação
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 8;
 
-  // Carrega os dados fazendo a requisição à API Route proxy
+  // Carrega os dados fazendo a requisição à API Route proxy (carrega todas as horas do período)
   useEffect(() => {
     async function fetchData() {
       if (!user) return;
       setLoading(true);
+      setError(null);
       try {
         const queryParams = new URLSearchParams();
-        // Passa todos os workspaces autorizados para carregar
+        // Carrega todos os workspaces associados
         queryParams.append("workspaces", user.workspaces.join(","));
-        // Passa o investidor/profissional selecionado
-        queryParams.append("professional", selectedInvestor);
 
         if (selectedProject !== "all") {
           queryParams.append("project", selectedProject);
@@ -108,39 +101,61 @@ export function DashboardView() {
         if (response.ok) {
           const resJson = await response.json();
           setLogs(resJson.data || []);
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          setError(errData.error || `Erro de conexão: Código ${response.status}`);
+          setLogs([]);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Erro ao carregar apontamentos", err);
+        setError(err.message || "Erro desconhecido na rede");
       } finally {
         setLoading(false);
       }
     }
     fetchData();
-  }, [user, period, selectedProject, customStartDate, customEndDate, selectedInvestor]);
+  }, [user, period, selectedProject, customStartDate, customEndDate]);
 
-  // Filtros locais aplicados no cliente
+  // Lista dinâmica de Investidores / Profissionais extraídos dinamicamente dos logs reais do eKyte
+  const investorsList = useMemo(() => {
+    const set = new Set<string>();
+    logs.forEach((log) => {
+      if (log.professional) {
+        set.add(log.professional);
+      }
+    });
+    return Array.from(set).sort();
+  }, [logs]);
+
+  // Filtros aplicados no cliente
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
+      const matchInvestor = selectedInvestor === "all" || log.professional === selectedInvestor;
       const matchWorkspace = selectedWorkspace === "all" || log.workspace === selectedWorkspace;
       const matchSearch =
         searchQuery === "" ||
         log.task.toLowerCase().includes(searchQuery.toLowerCase()) ||
         log.project.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchWorkspace && matchSearch;
+      return matchInvestor && matchWorkspace && matchSearch;
     });
-  }, [logs, selectedWorkspace, searchQuery]);
+  }, [logs, selectedInvestor, selectedWorkspace, searchQuery]);
 
-  // Lista dinâmica de workspaces e projetos baseada nos logs filtrados do investidor
+  // Lista dinâmica de workspaces baseada nos logs filtrados
   const workspacesList = useMemo(() => {
     const list = new Set<string>();
-    logs.forEach((l) => list.add(l.workspace));
-    return Array.from(list);
-  }, [logs]);
+    // Exibe apenas os workspaces relacionados ao investidor selecionado
+    const targetLogs = selectedInvestor === "all" 
+      ? logs 
+      : logs.filter(l => l.professional === selectedInvestor);
+      
+    targetLogs.forEach((l) => list.add(l.workspace));
+    return Array.from(list).sort();
+  }, [logs, selectedInvestor]);
 
   const projectsList = useMemo(() => {
     const list = new Set<string>();
     logs.forEach((l) => list.add(l.project));
-    return Array.from(list);
+    return Array.from(list).sort();
   }, [logs]);
 
   // KPIs
@@ -179,7 +194,7 @@ export function DashboardView() {
     return Object.values(dataMap).sort((a, b) => b.horas - a.horas);
   }, [filteredLogs]);
 
-  // Gráfico 2: Evolução de horas semanais (semanas do mês)
+  // Gráfico 2: Evolução de horas semanais
   const weeklyChartData = useMemo(() => {
     const weeksMap: Record<string, number> = {
       "Semana 1": 0,
@@ -202,7 +217,7 @@ export function DashboardView() {
     }));
   }, [filteredLogs]);
 
-  // Paginação da Tabela
+  // Paginação
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
   const paginatedLogs = useMemo(() => {
     const startIdx = (currentPage - 1) * itemsPerPage;
@@ -335,7 +350,7 @@ export function DashboardView() {
               </div>
             )}
 
-            {/* Selector: Investidor / Profissional */}
+            {/* Selector: Investidor / Profissional DInâmico */}
             <div className="relative">
               <User className="w-3 h-3 text-zinc-500 absolute left-2 top-2 pointer-events-none" />
               <select
@@ -343,9 +358,10 @@ export function DashboardView() {
                 onChange={(e) => setSelectedInvestor(e.target.value)}
                 className="pl-7 pr-6 py-1.5 bg-[#09090b] border border-zinc-900 rounded text-[11px] text-red-500 font-bold appearance-none cursor-pointer"
               >
-                {INVESTORS_LIST.map((inv) => (
-                  <option key={inv.email} value={inv.email}>
-                    {inv.email} ({inv.name})
+                <option value="all">Todos os Investidores</option>
+                {investorsList.map((email) => (
+                  <option key={email} value={email}>
+                    {email}
                   </option>
                 ))}
               </select>
@@ -391,6 +407,22 @@ export function DashboardView() {
           <div className="flex-1 flex flex-col items-center justify-center gap-2.5">
             <div className="w-6 h-6 border-2 border-zinc-800 border-t-red-650 rounded-full animate-spin" />
             <span className="text-xs text-zinc-500 font-medium">Carregando da API eKyte...</span>
+          </div>
+        ) : error ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto gap-4">
+            <div className="p-2.5 bg-red-950/20 border border-red-900/40 rounded text-red-500 font-bold text-[10px] uppercase tracking-wider">
+              Conexão eKyte pendente
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed px-4">
+              {error}
+            </p>
+            <div className="text-[10px] text-zinc-500 bg-[#09090b] p-3.5 rounded border border-zinc-900 w-full text-left leading-relaxed">
+              <span className="font-bold text-white block mb-1">Como resolver:</span>
+              1. Acesse o painel da Vercel.<br/>
+              2. Vá em <strong>Settings</strong> &gt; <strong>Environment Variables</strong>.<br/>
+              3. Verifique se os nomes das chaves estão exatos: <strong>EKYTE_API_TOKEN</strong> e <strong>EKYTE_API_URL</strong>.<br/>
+              4. <strong>Importante:</strong> Após salvar as variáveis, vá na aba <strong>Deployments</strong> e clique em <strong>Redeploy</strong> no deploy mais recente para ativar as configurações.
+            </div>
           </div>
         ) : (
           <div className="p-6 space-y-6 flex-1">
